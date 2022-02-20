@@ -1,0 +1,687 @@
+# How do you pick a great bottle of wine? I do my research on bottles I am interested in, talk to friends, ask the in-store wine consultant for their recommendations, etc., but I suspect many people run into an optimal stopping problem. For example, if you plan to spend $20 on an 85-point bottle, you may see that you could instead pick up an 86-point bottle for $25, an 87-point bottle for $30, and so on. How can you strike the right balance between perceived quality and price?
+
+# This makes some assumptions:
+# - WineEnthusiast reviews are a sufficient proxy for perceived quality of a wine.
+# - Prices need a range
+# - You're buying wine online
+# - Comparisons are primarily valuable for within-region comparisons
+# - Your selection process flows something like this: I want wine from X region. I want to know how good of a deal I'm getting. I want to know how much of a better deal I would get if I spend a little more.
+
+This uses the 130K data from https://www.kaggle.com/zynicide/wine-reviews
+
+Call libraries.
+```{r,}
+library(Hmisc)
+library(knitr)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(car)
+library(ggridges)
+library(viridis)
+library(hrbrthemes)
+```
+
+Read in the data. Use UTF-8 encoding to save headaches from treating special characters later. I learned this the hard way.
+
+```{r,}
+wine_df <- read.csv("C:/Users/blallen22/Downloads/winemag-data-130k-v2.csv/winemag-data-130k-v2.csv", encoding = "UTF-8")
+```
+
+Take a look at the variables in the dataset using the describe() function from the Hmisc package.
+
+```{r,}
+describe(wine_df)
+```
+
+describe() shows helpful descriptors of the variables. For example, it shows the number of observations ("n"), the count of missing values ("missing"), and the volume of distinct observations ("distinct").
+
+X is an index for each row. We can see that the index begins with 0, which may not be meaningful later but is worth noting.
+
+country is a list of countries represented in this dataset. The below shows that there are no immediate misspellings of country names. Notably, there are 63 records that have spaces and no other text in this variable.
+```{r,}
+kable(table(wine_df$country))
+```
+
+Let's take a look at that.
+
+description is the review from the wine reviewers. We see that of 129971 observations, 119955 are distinct. Let's make a tibble that counts the descriptions.
+
+```{r,}
+description_count <- wine_df %>% 
+                      group_by(description) %>%
+                      summarize(
+                        count = n()
+                      ) %>%
+                      arrange(desc(count))
+```
+
+Let's join this with the original dataframe.
+
+```{r,}
+wine_df <- merge(wine_df, description_count, by = "description")
+
+head(wine_df)
+```
+
+Let's see what commonalities exist among observations that have the same description as another observation.
+
+```{r,}
+head(wine_df[wine_df$count>1,], 30)
+
+nrow(wine_df[wine_df$count>1,])
+```
+
+This shows that certain wines, such as Dunbar 2013 Estate Grown Zinfandel (Sonoma Valley), appear to be true duplicates in that they have multiple observations that contain identical information. Other wines, such as Chateau Pontac-Lynch 2012 Barrel Sample (Margaux) and Chateau Maucaillou 2012 Barrel Sample (Moulis-en-Medoc), inexplicably have identical descriptions despite being different wines. Given examples like the Pontac-Lynch/Maucaillou, we are unable to determine which description accurately matches with which wine. This is pretty unfortunate, because there are 20026 observations that share descriptions with another. This is a non-trivial amount (15%). Let's remove true duplicates.
+
+Since the rows in question aren't exactly the same (recall the unique index value for each row), we can use distinct() given a target variable. Let's create a field to dedup on that only keeps unique combinations of description, twitter handle, and title. We're doing this to acknowledge that we aren't sure which description for any given set of duplicates is correct so we can't dedup on description, and we can't dedup on title because multiple tasters could have reviewed the same wine, hence the new field.
+
+```{r,}
+wine_df$descr_dedup_key <- paste0(wine_df$description, "_", wine_df$taster_twitter_handle, "_", wine_df$title)
+
+wine_df <- distinct(wine_df, descr_dedup_key, .keep_all = TRUE)
+```
+
+Now that this has been deduped, let's continue investigating the data for cleanliness.
+
+designation is "the vineyard within the winery where the grapes that made the wine are from." Let's take a look.
+
+```{r,}
+describe(wine_df$designation)
+```
+
+Let's take a look at the points variable and conduct any cleaning.
+
+```{r,}
+ggplot(wine_df, aes(x=points)) + 
+ geom_histogram(aes(y=..density..), binwidth = 1, colour="black", fill="purple4") + 
+  geom_vline(aes(xintercept=mean(points)),
+            color="purple", linetype="dashed", size=1)
+```
+
+This shows that the ratings (points) are all within the given range of 80-100. If you're wondering if this is normally distributed, you can visualize further to see if it is normal. With large enough samples (e.g., > 30 observations) we can assume thanks to the Central Limit Theorem that the distribution is relatively normal. The histogram suggest that the point variable looks pretty normal, and the below qqplot yields a similar assessment.
+
+```{r,}
+qqPlot(wine_df$points)
+```
+
+
+Let's investigate the price variable and clean as necessary.
+
+```{r,}
+describe(wine_df$price)
+```
+
+This shows that of the 120975 observations, 8996 (7%) do not have price information. The mean price is ~$35, but there are certainly some inexpensive (4 dollars) and expensive (3300 dollars) bottles.
+
+```{r,}
+ggplot(wine_df, aes(x=price)) + 
+ geom_histogram(aes(y=..density..), binwidth = 1, colour="black", fill="purple4")
+```
+
+This further illustrates the above. To check this heuristically:
+
+```{r,}
+wine_df[which(wine_df$price>1000), c("price", "winery")]
+```
+
+These expensive bottles include First Growth Left Bank Bordeaux and excellent Burgundy wines, which heuristically checks out. Therefore, we can feel confident that these are actual prices and not any sort of data error.
+
+Now region_1.
+
+```{r,}
+describe(wine_df$region_1)
+```
+
+Now region_2.
+
+```{r,}
+describe(wine_df$region_2)
+```
+
+```{r,}
+table(wine_df$region_2)
+```
+
+region_2 is sufficiently clean.
+
+Now taster_name.
+
+```{r,}
+describe(wine_df$taster_name)
+```
+
+```{r,}
+table(wine_df$taster_name)
+```
+
+Now taster_twitter_handle.
+
+```{r,}
+describe(wine_df$taster_twitter_handle)
+```
+
+```{r,}
+table(wine_df$taster_twitter_handle)
+```
+
+Now title.
+
+```{r,}
+describe(wine_df$title)
+```
+
+Now variety.
+
+```{r,}
+describe(wine_df$variety)
+```
+
+Now winery.
+
+```{r,}
+describe(wine_df$winery)
+```
+
+Let's create a vintage variable.
+
+```{r,}
+wine_df["vintage"] = 0 # creating new column in dataframe
+
+# using regex to extract year of vintage
+wine_df["vintage"] = str_extract(wine_df$title, "(\\d{4})")
+
+# convert vintage from character to numeric
+wine_df$vintage = as.numeric(wine_df$vintage)
+```
+
+```{r,}
+describe(wine_df$vintage)
+```
+
+This needs a bit more cleaning, given there are vintages including 1000, 3000, etc.
+
+Looking at, say, vintages older than 1900, it appears that there are many vineyards that include a year in their vineyard name (e.g., Caccia al Piano 1868, 1848 Winery, etc.).
+
+```{r,}
+head(wine_df[which(wine_df$vintage<1900), c("winery", "title", "vintage")])
+```
+
+Let's take an alternative approach. Let's create a vector of acceptable years and turn it into a single regular expression. How should we determine which years are acceptable to use as the vintage variable? It is possible that some of these years (e.g., 1950, 1960, etc.) may genuinely reflect vintages, but without intimately understanding each bottle it may be prudent to establish a cutoff. Given the below table, it appears that there are very few bottles in each year prior to 1995, and since the primary value of this analysis is to compare relatively similar bottles, let's use 1995 as the cutoff for creating a vintage variable.
+
+```{r,}
+table(wine_df$verified_vintage)
+```
+
+Shoutout to Hadley's terrific guide (https://r4ds.had.co.nz/strings.html).
+
+```{r,}
+actual_vintages = c(1995:2017)
+vintage_match = str_c(actual_vintages, collapse = "|")
+vintage_match
+```
+
+```{r,}
+wine_df$vintage <- str_extract(wine_df$title, vintage_match)
+table(wine_df$vintage)
+```
+
+Now that these variables are sufficiently clean, let's get down to business. Let's visualize distributions of price against points. The below shows a very zoomed-out perspective that primarily illustrates that 95+ point bottles seem to be more expensive.
+
+```{r,} 
+# create a factor version of the points variable
+wine_df$points_factor <- as.factor(wine_df$points)
+
+# Plot
+ggplot(wine_df, aes(x = price, y = points_factor, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Price", option = "C") +
+  labs(title = 'Price by Point Value') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+By creating bins we may be able to gain a better understanding of this. While visually it might seem that you generally get what you pay for, the difference between buckets may not be significant. A hopeful note is that you can purchase a, say, 95-point wine, at any budget. Note that points are most meaningful when compared within a given region, so consider that region-based differences in points may make interpreting the below relatively noisy.
+
+```{r,}
+# create bins for price
+bin_break_fifties <- c(0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, Inf)
+
+bin_names_fifties <- c("0-50", "51-100", "101-150", "151-200", "201-250", "251-300", "301-350", "351-400", "401-450", "451-500", "501+")
+
+wine_df$bin_price_fifties <- cut(wine_df$price, breaks = bin_break_fifties, labels = bin_names_fifties)
+
+# Plot
+ggplot(wine_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+```{r,}
+vintages_2000s_df <- wine_df[which(wine_df$vintage=="2000"|wine_df$vintage=="2001"|wine_df$vintage=="2002"|wine_df$vintage=="2003"|wine_df$vintage=="2004"|wine_df$vintage=="2005"|wine_df$vintage=="2006"|wine_df$vintage=="2007"|wine_df$vintage=="2008"|wine_df$vintage=="2009"),]
+
+vintages_2010s_df <- wine_df[which(wine_df$vintage=="2010"|wine_df$vintage=="2011"|wine_df$vintage=="2012"|wine_df$vintage=="2013"|wine_df$vintage=="2014"|wine_df$vintage=="2015"|wine_df$vintage=="2016"|wine_df$vintage=="2017"),]
+
+vintage_2000_df <- wine_df[which(wine_df$vintage=="2000"),]
+vintage_2005_df <- wine_df[which(wine_df$vintage=="2005"),]
+vintage_2010_df <- wine_df[which(wine_df$vintage=="2010"),]
+vintage_2015_df <- wine_df[which(wine_df$vintage=="2015"),]
+
+france_df <- wine_df[which(wine_df$country=="France"),]
+
+bordeaux_df <- wine_df[which(wine_df$province=="Bordeaux"),]
+
+boone_df <- wine_df[which(wine_df$taster_name=="Virginie Boone"),]
+
+viognier_df <- wine_df[which(wine_df$variety=="Viognier"),]
+
+lafite_df <- wine_df[grepl("Lafite Rothschild", wine_df$winery),]
+```
+
+```{r,}
+# Plot
+ggplot(vintages_2000s_df, aes(x = points, y = vintage, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Vintage and Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+```{r,}
+# Plot
+# ggplot(vintages_2010s_df, aes(x = points, y = vintage, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Vintage and Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+```{r,}
+# Plot
+# ggplot(vintages_2000s_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+```{r,}
+# Plot
+# ggplot(vintages_2010s_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+```{r,}
+# Plot
+# ggplot(vintage_2000_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+```{r,}
+# Plot
+# ggplot(vintage_2005_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+```{r,}
+# Plot
+# ggplot(vintage_2010_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+
+```{r,}
+# Plot
+# ggplot(vintage_2015_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+```{r,}
+# Plot
+# ggplot(france_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+
+
+
+```{r,}
+# Plot
+ggplot(bordeaux_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+
+
+```{r,}
+# Plot
+ggplot(boone_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+
+
+```{r,}
+# Plot
+ggplot(viognier_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+
+
+
+```{r,}
+# Plot
+# ggplot(lafite_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+#   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+#   scale_fill_viridis(name = "Points", option = "C") +
+#   labs(title = 'Points by Price') +
+#   theme_ipsum() +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.1, "lines"),
+#       strip.text.x = element_text(size = 8)
+#     )
+```
+
+Let's use the points variable as a proxy for utility. Assuming that a consumer is relatively familiar with appreciating wine, let's assume that reviewers' point ratings are a suitable proxy for how much one might enjoy a given wine, nonwithstanding an individual's personal preferences.
+
+What might be nice from the above would be the ability to see the above for each varietal, etc., to understand what good deals might exist.
+
+Are certain reviewers more conservative with their reviews? Could be tricky if there aren't many apples to apples comparisons of the same wines.
+
+```{r,}
+# Plot
+ggplot(wine_df, aes(x = points, y = taster_name, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+```
+
+The above makes it appear as though there are meaningful differences among certain reviewers. However, this might not necessarily mean that these reviewers are more or less conservative. Indeed, couldn't it be true that reviewers might specialize in wines of certain qualities, vintages, geographies, etc.?
+
+What if I want to go online and buy a Pauillac, and I'm especially interested in seeking a good deal for $50 or less.
+
+```{r,}
+pauillac_df <- wine_df[which(wine_df$region_1=="Pauillac"),]
+
+
+# Plot
+ggplot(pauillac_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01, quantile_lines = TRUE, quantiles = c(0.025, 0.5, 0.975)) +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+
+
+# Plot
+ggplot(pauillac_df, aes(x = points, y = bin_price_fifties, fill = ..x..)) +
+  geom_density() +
+  scale_fill_viridis(name = "Points", option = "C") +
+  labs(title = 'Points by Price') +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    )
+
+ggplot(pauillac_df, aes(x=points)) +
+  geom_density(alpha=.2, fill="#FF6666") +
+  facet_wrap(~bin_price_fifties)
+
+ggplot(pauillac_df, aes(x=points)) + 
+  geom_density(aes(color=bin_price_fifties)) + 
+  geom_density()
+```
+
+```{r,}
+ggplot(pauillac_df, aes(x=points, y=price)) +
+  geom_point()
+```
+
+```{r,}
+pauillac_50_df <- wine_df[which(wine_df$region_1=="Pauillac"&wine_df$bin_price_fifties=="0-50"),]
+
+
+ggplot(pauillac_50_df, aes(x=points, y=price)) +
+  geom_point() +
+  facet_wrap(~taster_name) + 
+  geom_point(color = dplyr::case_when(pauillac_50_df$points >= 90 ~ "#1b9e77", 
+                                      pauillac_50_df$price <= 30 ~ "#d95f02",
+                                      TRUE ~ "#7570b3"), 
+             size = 3, alpha = 0.8)
+```
+
+
+Let's take a look at the Pauillac region of Bordeaux:
+
+```{r,}
+
+
+ggplot(pauillac_50_df, aes(x=points, y=price)) +
+  geom_point() +
+  facet_wrap(~taster_name) +
+  geom_text(aes(label=title))
+
+library(ggrepel)
+
+ggplot(pauillac_50_df, aes(x=points, y=price)) +
+  geom_point() +
+  facet_wrap(~taster_name) +
+  geom_label_repel(aes(label = title),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+  theme_classic()
+
+
+
+
+ggplot(pauillac_50_df, aes(x=points, y=price, label=title)) +
+  geom_point(color = dplyr::case_when(pauillac_50_df$points >= 90 ~ "#1b9e77", 
+                                      pauillac_50_df$price <= 30 ~ "#d95f02",
+                                      TRUE ~ "#7570b3"), 
+             size = 3, alpha = 0.8) +
+  geom_text_repel(data          = subset(pauillac_50_df, points >= 90),
+                  nudge_y       = 32 - subset(pauillac_50_df, points >= 90)$PTS,
+                  size          = 4,
+                  box.padding   = 1.5,
+                  point.padding = 0.5,
+                  force         = 100,
+                  segment.size  = 0.2,
+                  segment.color = "grey50",
+                  direction     = "x") +
+  geom_label_repel(data         = subset(pauillac_50_df, price <= 30),
+                  nudge_y       = 16 - subset(pauillac_50_df, price <= 3)$PTS,
+                  size          = 4,
+                  box.padding   = 0.5,
+                  point.padding = 0.5,
+                  force         = 100,
+                  segment.size  = 0.2,
+                  segment.color = "grey50",
+                  direction     = "x") +
+  scale_x_continuous(expand = expand_scale(mult = c(0.2, .2))) +
+  scale_y_continuous(expand = expand_scale(mult = c(0.1, .1))) +
+  theme_classic(base_size = 16)
+```
+
+I am not advocating for the pursuit of high-point wine, and indeed I believe that lower-point wine can bring just as much joy as a better-rated wine.
+
+Is it possible to do some text analysis to understand what the predominant descriptors are? Not sure how feasible this is - read a few reviews to find out.
+
+Let's map this out using Wine Folly's pricing classification (https://winefolly.com/lifestyle/reality-of-wine-prices-what-you-get-for-what-you-spend/).
+
+```{r,}
+winefolly_price_classification_break <- c(0, 3, 10, 15, 20, 30, 50, 100, 200, Inf)
+
+winefolly_price_classification_names <- c("Extreme Value (<$4)", "Value ($4-$10)", "Popular Premium ($11-$15)", "Premium ($16-$20)", "Super Premium ($21-$30)", "Ultra Premium ($31-$50)", "Luxury ($51-$100)", "Super Luxury ($101-$200)", "Icon ($200+)")
+
+wine_df$winefolly_price_classification <- cut(wine_df$price, breaks = winefolly_price_classification_break, labels = winefolly_price_classification_names)
+```
+
+Generally, are higher-rated wines more expensive?
+
+```{r,}
+ggplot(wine_df, aes(x=points, y=winefolly_price_classification)) +
+  geom_point()
+```
+
+```{r,}
+price_class_mean <- aggregate(x = wine_df$points,
+                  by = list(wine_df$winefolly_price_classification),
+                  FUN = mean)
+```
+
+```{r,}
+ggplot(price_class_mean, aes(x=Group.1, y=x)) +
+  geom_point()
+```
+
+```{r,}
+price_class_median <- aggregate(x = wine_df$points,
+                  by = list(wine_df$winefolly_price_classification),
+                  FUN = median)
+```
+
+```{r,}
+ggplot(price_class_median, aes(x=Group.1, y=x)) +
+  geom_point()
+```
+
+
+Overall, what's the correlation looking like?
+```{r,}
+cor.test(wine_df$price, wine_df$points)
+```
+
+This suggests that price and points are positively correlated, although perhaps only moderately.
+
+Calculate marginal utility. For every additional dollar spent, how much more do you get in terms of points?
+
+```{r,}
+wine_df$price_factor <- as.factor(wine_df$price)
+point_price_median <- aggregate(x = wine_df$points,
+                  by = list(wine_df$price_factor),
+                  FUN = median)
+```
+
+```{r,}
+ggplot(point_price_median, aes(x=Group.1, y=x)) +
+  geom_point()
+```
