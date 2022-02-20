@@ -1,0 +1,541 @@
+# Packages
+
+```{r,results='hide'}
+rm(list=ls())
+PackageList =c('kernlab','ROCR','ggplot2','ISLR','e1071')
+NewPackages=PackageList[!(PackageList %in% 
+                            installed.packages()[,"Package"])]
+if(length(NewPackages)) install.packages(NewPackages)
+lapply(PackageList,require,character.only=TRUE)#array function
+set.seed(123) #Always set the seed for reproducibility
+```
+
+
+# We're going to use the Auto dataset from ISLR
+```{r,}
+data(Auto)
+set.seed(123)
+```
+
+# (a) Create a binary variable that takes on a 1 for cars with gas mileage above the median, and a 0 for cars with gas mileage below the median.
+
+```{r,}
+median(Auto$mpg) # this comes out to be 22.75
+Auto$above_median_mpg <- Auto$mpg
+Auto$above_median_mpg[Auto$above_median_mpg<22.75] <- 0
+Auto$above_median_mpg[Auto$above_median_mpg>22.75] <- 1
+Auto$above_median_mpg <- as.factor(Auto$above_median_mpg)
+table(Auto$above_median_mpg)
+```
+
+# Split into training, validation, and test set.
+
+```{r}
+drops <- c("name","mpg")
+Auto <- Auto[,!(names(Auto) %in% drops)]
+
+N_test = dim(Auto)[1]
+test_index = sample(N_test, size = N_test * 0.75, replace = FALSE)
+train_data = Auto[test_index,]
+test_data = Auto[-test_index,]
+
+train_y <- train_data$above_median_mpg
+
+test_y <- test_data$above_median_mpg
+
+drops <- c("above_median_mpg")
+train_x <- train_data[,!(names(train_data) %in% drops)]
+
+train_x <- as.matrix(train_x)
+
+drops <- c("above_median_mpg")
+test_x <- test_data[,!(names(test_data) %in% drops)]
+
+test_x <- as.matrix(test_x)
+```
+
+# (b) Fit a support vector classifier to the data with various values of cost, in order to predict whether a car gets high or low gas mileage. Report the cross-validation errors associated with different values of this parameter. Comment on your results.
+
+# SVM: Input Arguments
+```{r}
+set.seed(123)
+svp <- ksvm(train_x,          # feature matrix X
+            train_y,          # response variable y
+            type = "C-svc",  # Maximum Margin Classifier, for binary classification
+                             # "spoc-svc" or "kbb-svc" for multi-class
+                             # "eps-svr" or "nu-svr" for support vector regression
+            kernel = "vanilladot",# linear kernel
+                                  # polydot(degree=2) for polymial kernel with degree-2
+                                  # "tanhdot" for hyperbolic tangent kernel
+                                  # "rbfdot" for Gaussian kernel
+            C=100,          # cost of constraints violation, the larger
+                            #the few in-sample error and the more complex the model
+            kpar ="automatic", # (optional) kernel parameters
+            scaled=TRUE, # If TRUE,data are scaled internally (both x and y variables), 
+                          #to zero mean and unit variance.
+            cross=5) # If an integer >0, say 5 is supplied,
+                        #then a 5-fold cross-validation will be performed
+print(svp)
+```
+
+Training error is around 0.078231.
+Cross validation error is around 0.0782.
+
+Per the TA on Piazza, the plot() function above only works if train_x is two-dimensional. As a result, the plot function will not be appropriate for our data, which has >2 variables.
+
+# SVM: Making Predictions
+
+Let's predict using the default parameters.
+
+```{r predict_linear1}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+The accuracy rate for this model is 0.8877551. Quite good!
+
+
+# Let's use cross-validation to select the optimal c value.
+
+```{r}
+set.seed(123)
+cost = 2^(seq(-10, 15))
+crossError = rep(NA, length(cost))
+error = sapply(cost, function(c){
+  cross(ksvm(train_x, train_y, type = "C-svc", kernel = "vanilladot", C = c, scaled=TRUE, cross = 5))#cross-validation error
+})
+plot(log2(cost), error, type='b')
+
+cat('The best c is ',cost[which.min(error)],'\n')
+```
+
+The best "c" is 128. Let's report the cross-validation errors associated with different values of this parameter:
+
+```{r,}
+set.seed(123)
+cost.formatted <- format(round(cost, 2), nsmall = 2)
+error.formatted <- format(round(error,2 ), nsmall = 2)
+cbind(cost.formatted, error.formatted)
+plot(cost, error)
+```
+
+What we are looking for here is the lowest cross-validation error, and given our rounding technique it is clear to see that, fortuitously, having a "c" value of 128 results in the lowest error (the only "0.07").
+
+Let's use the optimal c to predict. Let's evaluate the quality of the predictions.
+
+```{r}
+set.seed(123)
+svp <- ksvm(train_x, train_y, type = "C-svc", kernel = "vanilladot", C=128, kpar ="automatic", scaled=TRUE, cross=5)
+print(svp)
+```
+
+The optimal c yields the same training error (0.078231) and cross-validation error (0.0782) as the original, non-optimal model.
+
+Let's take a look at the predictions for the optimal c model as well.
+
+```{r predict_linear2}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+We see that the optimal parameters yield the exact same accuracy rate as the non-optimal parameters.
+
+# (c) Now repeat (b), this time using SVMs with radial and polynomial basis kernels, with different values of gamma and degree and cost. Comment on your results.
+
+# (d) Make some plots to back up your assertions in (b) and (c).
+
+
+Let's now use radial kernels.
+
+```{r non_linear_svm1}
+# Train a radial SVM
+set.seed(123)
+svp <- ksvm(train_x,          # feature matrix X
+            train_y,          # response variable y
+            type = "C-svc",  # Maximum Margin Classifier, the one covered in class
+            kernel = "rbf",  # rbf is  (Gaussian) radial basis function kernel
+            C=1,             # cost of constraints violation, the larger,
+                            #the few in-sample error and the more complex the model
+            kpar =list(sigma=1),# inverse kernel width, the larger, the more complicated
+                                # (optional) If not supplied, ksvm will find a heuristic sigma for you
+            scaled=TRUE,      # If TRUE,data are scaled internally (both x and y variables)
+                              #to zero mean and unit variance.
+            cross=5)          # If an integer, say 5 is supplied,
+                              #then a 5-fold cross-validation will be performed
+print(svp)
+
+#Linear comparison
+svp_linear=ksvm(train_x, train_y, type = "C-svc", kernel = "vanilladot", C = 1, scaled=TRUE, cross = 5)
+
+# reminder that we can't visualize the plots since our x has multiple variables
+```
+
+# Nonlinear SVM: C and sigma
+
+```{r}
+set.seed(123)
+cost = 2^(seq(-10, 15, by=2))
+sigma = 1:5
+error = sapply(cost, function(c){
+          sapply(sigma, function(s){
+            cross(ksvm(train_x, train_y, type = "C-svc", kernel="rbf", kpar = list(sigma = s), C = c,
+               scaled=TRUE, cross = 5))
+          })
+        })
+# error is a matrix!
+  
+toPlotError = data.frame(sigma = rep(sigma, length(cost)), 
+                         logcost = rep(log(cost), each = length(sigma)),
+                         error = as.vector(error))
+                         
+ggplot(data = toPlotError, aes(x=logcost, y=error)) + geom_point() + geom_line() + 
+  facet_grid(.~sigma) 
+```
+
+what is the lowest error? Let's find it!
+
+```{r,}
+set.seed(123)
+
+# even better, let's find the optimal sigma by digging into toPlotError
+which(toPlotError$error == min(toPlotError$error), arr.ind = TRUE)
+
+toPlotError[26,]
+```
+
+This suggests that the optimal sigma is 1 with an error of 0.06779661.
+
+Let's take a look at the automatically chosen sigma, just to see how it differs from the optimal sigma we have selected.
+
+```{r}
+set.seed(123)
+# Train a nonlinear SVM with automatic selection of sigma by heuristic
+svp <- ksvm(train_x, train_y, type = "C-svc", kernel = "rbf", C = 1, scale=TRUE, cross = 5)
+
+print(svp)
+
+# Check the selected sigma
+cat('The chosen sigma=',svp@kernelf@kpar$sigma,'\n')
+
+# Visualize it
+# plot(svp, data = train_x)
+```
+
+The chosen sigma is 0.2320885. The training error is 0.061224, and the cross-validation error is 0.85038.
+
+Let's find the optimal c value.
+
+```{r,}
+set.seed(123)
+cost = 2^(seq(-10, 15, by=2))
+crossError = rep(NA, length(cost))
+error = sapply(cost, function(c){
+  cross(ksvm(train_x, train_y, type = "C-svc", kernel = "rbf", C = c, scaled=TRUE, cross = 5))#cross-validation error
+})
+plot(log2(cost), error, type='b')
+
+set.seed(123)
+cost.formatted <- format(round(cost, 2), nsmall = 2)
+error.formatted <- format(round(error,2 ), nsmall = 2)
+cbind(cost.formatted, error.formatted)
+plot(cost, error)
+
+cat('The best c is ',cost[which.min(error)],'\n')
+```
+
+The best c is 4, which has the lowest error at ~0.07.
+
+Let's predict using the optimal sigma and the optimal c and see how well that performs. We can also compare that against the sigma that was automatically selected.
+
+First, let's predict using the optimal c and the sigma that was automatically selected.
+```{r}
+set.seed(123)
+# Train a nonlinear SVM with automatic selection of sigma by heuristic
+svp <- ksvm(train_x, train_y, type = "C-svc", kernel = "rbf", C = 4, scale=TRUE, cross = 5)
+
+print(svp)
+
+# Check the selected sigma
+cat('The chosen sigma=',svp@kernelf@kpar$sigma,'\n')
+```
+
+The training error is 0.040816, which is an improvement over the original radial model. The cross-validation error is also better, at 0.0782.
+
+```{r predict_radial1}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+The accuracy rate is 0.8979592. The only slight surprise here is that the plot accuracy as a function of threshold is a bit off from 0, but per the TA session this doesn't seem to be very worrisome, given it is reasonably close to 0. We would only be alarmed if it felt meaningfully far from 0.
+
+As a comparison, let's now predict using the optimal c and the optimal sigma.
+```{r}
+set.seed(123)
+# Train a nonlinear SVM with automatic selection of sigma by heuristic
+svp <- ksvm(train_x, train_y, type = "C-svc", kernel = "rbf", C = 4, kpar = list(1), scale=TRUE, cross = 5)
+
+print(svp)
+
+# Check the selected sigma
+cat('The chosen sigma=',svp@kernelf@kpar$sigma,'\n')
+
+# Visualize it
+# plot(svp, data = train_x)
+```
+
+Here we see that the training error is much lower than the other two radial models, at 0.013605. The cross-validation error has crept up to be the highest model so far at 0.088252.
+
+```{r predict_radial2}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+The accuracy rate for this model is 0.9285714. This suggests that the radial model that uses the optimal c and sigma performs better than the radial model that uses the optimal c and the automatically selected sigma and the default model. If you like what you see with the optimal model's training error but you are worried about the slightly higher cross-validation error, then the model with the optimal c but non-optimal sigma might be a good middle ground between the optimal model and the default model.
+
+Now let's examine this data through the lens of polynomial kernels.
+
+# Polynomial basis kernels
+
+```{r non_linear_svm3}
+# Train a polynomial SVM
+set.seed(123)
+svp <- ksvm(train_x,          # feature matrix X
+            train_y,          # response variable y
+            type = "C-svc",  # Maximum Margin Classifier, the one covered in class
+            kernel = "polydot",  # rbf is  (Gaussian) radial basis function kernel
+            C=1,             # cost of constraints violation, the larger,
+                            #the few in-sample error and the more complex the model
+                                # (optional) If not supplied, ksvm will find a heuristic sigma for you
+            scaled=TRUE,      # If TRUE,data are scaled internally (both x and y variables)
+                              #to zero mean and unit variance.
+            cross=5)          # If an integer, say 5 is supplied,
+                              #then a 5-fold cross-validation will be performed
+print(svp)
+```
+
+The training error is 0.078231, and the cross-validation error is 0.07481.
+
+Let's find the preferred c value.
+
+```{r,}
+set.seed(123)
+cost = 2^(seq(-10, 15, by=2))
+crossError = rep(NA, length(cost))
+error = sapply(cost, function(c){
+  cross(ksvm(train_x, train_y, type = "C-svc", kernel = "polydot", C = c, scaled=TRUE, cross = 5))#cross-validation error
+})
+plot(log2(cost), error, type='b')
+
+set.seed(123)
+cost.formatted <- format(round(cost, 2), nsmall = 2)
+error.formatted <- format(round(error,2 ), nsmall = 2)
+cbind(cost.formatted, error.formatted)
+plot(cost, error)
+
+cat('The best c is ',cost[which.min(error)],'\n')
+```
+
+The best c is 4, and we can see that it has an error of ~0.08.
+
+Let's find the optimal degree.
+
+```{r,}
+set.seed(123)
+cost = 2^(seq(-10, 15, by=2))
+degree = 1:10
+error = sapply(cost, function(c){
+          sapply(degree, function(s){
+            cross(ksvm(train_x, train_y, type = "C-svc", kernel="polydot", degree = list(degree = s), C = c,
+               scaled=TRUE, cross = 5))
+          })
+        })
+# error is a matrix!
+  
+toPlotError = data.frame(degree = rep(degree, length(cost)), 
+                         logcost = rep(log(cost), each = length(degree)),
+                         error = as.vector(error))
+                         
+ggplot(data = toPlotError, aes(x=logcost, y=error)) + geom_point() + geom_line() + 
+  facet_grid(.~degree) 
+```
+
+what is the lowest error? Let's find it!
+
+```{r,}
+set.seed(123)
+# let's find the optimal sigma by digging into toPlotError
+which(toPlotError$error == min(toPlotError$error), arr.ind = TRUE)
+
+toPlotError[59,]
+```
+
+The 9th degree returns the lowest error at 0.07130333.
+
+Let's predict this without using the optimal parameters and evaluate the performance.
+
+```{r predict_poly1}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+The accuracy rate for this model is 0.8979592.
+
+Now let's predict using the optimal parameter.
+
+```{r non_linear_svm4}
+set.seed(123)
+# Train a nonlinear SVM
+#svp <- ksvm(x, y, type = "C-svc", kernel="rbf", kpar = list(sigma = 1), C = 1)
+
+svp <- ksvm(train_x,          # feature matrix X
+            train_y,          # response variable y
+            type = "C-svc",  # Maximum Margin Classifier, the one covered in class
+            kernel = "polydot",  # rbf is  (Gaussian) radial basis function kernel
+            C=4,             # cost of constraints violation, the larger,
+                            #the few in-sample error and the more complex the model
+                                # (optional) If not supplied, ksvm will find a heuristic sigma for you
+            degree = 9,
+            scaled=TRUE,      # If TRUE,data are scaled internally (both x and y variables)
+                              #to zero mean and unit variance.
+            cross=5)          # If an integer, say 5 is supplied,
+                              #then a 5-fold cross-validation will be performed
+print(svp)
+```
+
+The training error is 0.078231, and the cross-validation error is 0.07481.
+
+```{r predict_poly5}
+set.seed(123)
+# Predict labels
+ypred <- predict(svp, test_x)
+table(test_y, ypred) 
+cat('The accuracy rate is',sum(ypred == test_y) /length(ypred),'\n')
+
+# Compute the prediction scores
+ypredscore <- predict(svp, test_x, type = "decision")
+# Check that the predicted labels are the signs of the scores
+table(ypredscore >= 0, ypred)
+
+# Plot ROC curve
+pred <- prediction(ypredscore, test_y)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+
+```
+
+The accuracy rate of the model that used optimal degree is the same as the model that used non-optimal degree: 0.8979592.
+
+The accuracy rate of the vanilla, radial, and polynomial models were all quite high, but the highest seems to be the radial model that used the optimal parameters. Given that it had the lowest training error, this would be an attractive model if you are willing to stomach the slightly higher cross-validation error.
