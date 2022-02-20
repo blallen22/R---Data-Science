@@ -1,0 +1,693 @@
+```{r read in the data,}
+promotions_train <- read.csv("c:/Users/blallen22/Downloads/promotions_train.csv", header = TRUE)
+
+promotions_test <- read.csv("c:/Users/blallen22/Downloads/promotions_test.csv", header = TRUE)
+```
+
+Let's create a validation set out of the training set.
+
+```{r,}
+N_validation = dim(promotions_train)[1]
+validation_index = sample(N_validation, size = N_validation * 0.75, replace = FALSE)
+promotions_train = promotions_train[validation_index,]
+promotions_validation = promotions_train[-validation_index,]
+```
+
+## Using the records in the training data, what is the effect of promotion?
+
+```{r}
+plot(promotions_train$target_control,promotions_train$outcome)
+prop.table(table(promotions_train$target_control[promotions_train$outcome=="negative"]))
+prop.table(table(promotions_train$target_control[promotions_train$outcome=="positive"]))
+prop.table(table(promotions_train$outcome[promotions_train$target_control=="target"]))
+prop.table(table(promotions_train$outcome[promotions_train$target_control=="control"]))
+table(promotions_train$outcome[promotions_train$target_control=="target"])
+table(promotions_train$outcome[promotions_train$target_control=="control"])
+
+# In general, it seems to make a very small difference. 
+# This could mean that it truly has no effect across all sub-populations, or 
+# that it has a strong positive effect for some and a strong negative effect for others, 
+# or possibly something else. What is more important is to identify 
+# sub-populations where the treatment might have a meaningful effect. 
+
+summary(reg1 <- glm(promotions_train$outcome~., family = binomial(link = "logit"), 
+                    data = promotions_train))
+
+# a quick logistic regression similarly suggests that target_control 
+# isn't a statistically meaningful predictor of outcome
+
+# Let's build predictive models to identify these sub-populations.
+
+# First we should make the outcome variable into a 0/1
+
+transform.indicator<-function(input) 
+{
+  fact<-as.factor(input)
+  levels(input)<-c("zero", "one")
+  levels(input)<-c(0,1)
+  as.integer(input)
+  return(input)
+}
+
+promotions_train$outcome <- transform.indicator(promotions_train$outcome)
+promotions_validation$outcome <- transform.indicator((promotions_validation$outcome))
+promotions_test$outcome <- transform.indicator(promotions_test$outcome)
+```
+
+Of course, the goal of the initial campaign was not just to measure the average effect of the sending the promotional materials, but to try to identify a sub-population where the treatment might have a larger effect. We will build predictive models to identify these sub-populations.
+
+##
+
+Using the data in promotions_train.csv build a decision tree model, a random forest model and a boosting model for the variable outcome using input variables available (including the variable target_control). Discuss how you chose the input variables and parameters used to build the models. Among your three models, choose the best one in terms of predictive power. Which one is it? Why did you choose it?
+
+**First, it could be insightful to use something like elastic net regression for variable selection.**
+```{r elastic net,warning=FALSE}
+library(glmnet)
+library(caret)
+library(ISLR)
+
+set.seed(123)
+
+#set up alpha and lambda grid to search for a pair that minimizes cross validation error
+lambda.grid<-10^seq(2,-2,length=100)
+alpha.grid<-seq(0,1,length=10)
+
+#set up cross validation method for train function
+trnCtrl=trainControl(
+  method="repeatedCV",
+  number=10,
+  repeats=5)
+
+#set up search grid for alpha and lambda parameters
+srchGrd = expand.grid(.alpha=alpha.grid,.lambda=lambda.grid)
+
+#perform cross validation forecasting Q1 based on all features
+train<-train(outcome~.,data=promotions_train,
+             method="glmnet",
+             tuneGrid=srchGrd,
+             trControl=trnCtrl,
+             standardize=TRUE,maxit=1000)
+
+#plot cross validation performance
+plot(train)
+
+#return best tuning parameters
+train$bestTune
+
+#retrieve best model (model with best alpha)
+glmnet.model<-train$finalModel
+
+#retrieve coefficients of the final model using optimal lambda
+coef(glmnet.model,s=train$bestTune$lambda)
+```
+
+**The elastic net model suggests that x5value4, x6value3, x8value2, x8value3, x8value4, x10value2, x11value3, x15value2, x15value3, and x16value3 are meaningful predictors of outcome.**
+
+**Let's try a classification tree with all of the variables first, just to see if it's any good.**
+
+```{r classification tree with all variables,warning=FALSE}
+library(rpart)      # package for trees
+library(rpart.plot) # package that enhances plotting capabilities for rpart
+library(MASS) 
+set.seed(123)
+big.tree = rpart(outcome~., data=promotions_train, method = "class",
+      control=rpart.control(minsplit=5,cp=0.0001,xval=10))
+
+nbig = length(unique(big.tree$where))
+cat('size of big tree: ',nbig,'\n')
+
+bestcp = big.tree$cptable[ which.min(big.tree$cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+bestcp
+
+plotcp(big.tree) # plot results
+
+rpart.plot(big.tree)
+
+par(mfrow=c(1,1))
+best.tree = prune(big.tree,cp=bestcp)
+rpart.plot(best.tree)
+
+best.tree$cptable
+
+# the above shows that the resulting tree is still very complex
+```
+
+**Let's instead create a tree that uses only the variables we identified as meaningful from the elastic net regression. Let's also include target_control. In the event this is meaningful, we would not want to miss its effects.**
+
+```{r classification tree with only the meaningful variables,warning=FALSE}
+library(rpart)      # package for trees
+library(rpart.plot) # package that enhances plotting capabilities for rpart
+library(MASS)  # contains boston housing data
+set.seed(123)
+big.tree = rpart(outcome~x5+x6+x8+x10+x11+x15+x16+target_control, data=promotions_train, method = "class",
+      control=rpart.control(minsplit=5,cp=0.0001,xval=10))
+
+nbig = length(unique(big.tree$where))
+cat('size of big tree: ',nbig,'\n')
+
+bestcp = big.tree$cptable[ which.min(big.tree$cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+bestcp
+
+plotcp(big.tree) # plot results
+
+rpart.plot(big.tree)
+
+par(mfrow=c(1,1))
+best.tree = prune(big.tree,cp=bestcp)
+rpart.plot(best.tree)
+
+best.tree$cptable
+
+# the above shows that the resulting tree is still quite complex, 
+# and not necessarily over the previous tree.
+```
+
+**This tree is still not great. However, I tried using these specific variables for the rest of the analysis and the misclassification rates and deviance loss were  worse than using all of the variables. Given this, it would be prudent to use the entire dataset instead of just the seemingly meaningful variables.**
+
+**Still, in the pursuit of identifying the most meaningful variables, let's try forward stepwise regression to identify them.**
+
+```{r,warning=FALSE}
+promotions_train$outcome_integer <- as.integer(promotions_train$outcome)
+null<-lm(promotions_train$outcome_integer~1,data=promotions_train, family = binomial)
+full<-lm(promotions_train$outcome_integer~.-outcome+(.-outcome)^2,data=promotions_train, family = binomial)
+fwdstep<-step(null,scope=formula(full),direction="forward",k=log(length(promotions_train$outcome_integer)))
+summary(fwdstep)
+
+# this shows that the only meaningful factor is x8, so we're not going to use JUST that variable.
+
+promotions_train <- promotions_train[,1:21]
+```
+
+**It is interesting that both elastic net and forward stepwise determined that variable x8 is meaningful in predicting the outcome variable. However, it is possible that the results are overfit. Given these lackluster variable selection results, let's plan to use the full set of variables in our predictions.**
+
+## NOTE: I tested all of the following trees, random forest, and boosting with varying combinations of selected variables (e.g., the elastic net's selected variables, the random forest's most important variables (outcome ~ x15 + x1 + x17 + x18 + x8 + x12 + x14 + x16 + x9 + x19), etc.). 
+
+## Using variable selection proved to be sometimes just as good or sometimes worse than including all of the variables. 
+
+## With this in mind, it was prudent to keep all of the variables in the models.
+
+
+```{r,results='hide', echo=FALSE, warning=FALSE}
+PackageList =c('MASS','gbm','tree','randomForest','rpart','caret','readxl','tictoc') 
+NewPackages=PackageList[!(PackageList %in% 
+                            installed.packages()[,"Package"])]
+if(length(NewPackages)) install.packages(NewPackages)
+lapply(PackageList,require,character.only=TRUE)#array function
+set.seed(123)
+```
+
+**We create functions for evaluation.**
+```{r evaluation methods,}
+# deviance loss function
+# y should be 0/1
+# phat are probabilities obtain by our algorithm 
+# wht shrinks probs in phat towards .5 --- this helps avoid numerical problems don't use log(0)!
+lossf = function(y,phat,wht=0.0000001) {
+   if(is.factor(y)) y = as.numeric(y)-1
+   phat = (1-wht)*phat + wht*.5 #For numerical reason, we can not do log(0)
+   py = ifelse(y==1, phat, 1-phat)
+   return(-2*sum(log(py)))
+}
+
+# confusion matrix
+# y should be 0/1
+# phat are probabilities obtain by our algorithm 
+# thr is the cut off value - everything above thr is classified as 1
+getConfusionMatrix = function(y,phat,thr=0.5) {
+   if(is.factor(y)) y = as.numeric(y)-1
+   yhat = ifelse(phat > thr, 1, 0)
+   tb = table(predictions = yhat, 
+                   actual = y)  
+   rownames(tb) = c("predict_0", "predict_1")
+   return(tb)
+}
+
+# misclassification rate
+# deviance loss function
+# y should be 0/1
+# phat are probabilities obtain by our algorithm 
+# thr is the cut off value - everything above thr is classified as 1
+lossMR = function(y,phat,thr=0.5) {
+   if(is.factor(y)) y = as.numeric(y)-1
+   yhat = ifelse(phat > thr, 1, 0)
+   return(1 - mean(yhat == y))
+}
+
+```
+
+**We need a place to store results**
+
+```{r}
+phatL = list() #store the test phat for the different methods here
+```
+
+
+**Let's do a classification tree**
+
+```{r classification tree with all of the variables,warning=FALSE}
+library(rpart)      # package for trees
+library(rpart.plot) # package that enhances plotting capabilities for rpart
+library(MASS)  # contains boston housing data
+set.seed(123)
+big.tree = rpart(outcome~., data=promotions_train,
+      control=rpart.control(minsplit=5,cp=0.0001,xval=10))
+
+nbig = length(unique(big.tree$where))
+cat('size of big tree: ',nbig,'\n')
+
+bestcp = big.tree$cptable[ which.min(big.tree$cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+bestcp
+
+plotcp(big.tree) # plot results
+
+rpart.plot(big.tree)
+
+par(mfrow=c(1,1))
+best.tree = prune(big.tree,cp=bestcp)
+rpart.plot(best.tree)
+
+# predictions are stored for further analysis
+
+phat.tree = predict(best.tree, newdata=promotions_validation, type="class")
+
+phatL$tree = matrix(phat.tree,ncol=1) 
+```
+
+**Just a reminder that when we only used the meaningful variables, the misclassification rate and deviance loss were worse. (Not shown.)**
+
+**Let's do random forest models**
+
+```{r random forest,}
+##settings for randomForest
+# after testing multiple settings options, this was the best
+set.seed(123)
+p=ncol(promotions_train)-1
+mtryv = c(p, sqrt(p))
+ntreev = c(500,5000) 
+(setrf = expand.grid(mtryv,ntreev))  # this contains all settings to try
+colnames(setrf)=c("mtry","ntree")
+phatL$rf = matrix(0.0,nrow(promotions_validation),nrow(setrf))  # we will store results here
+
+###fit rf
+for(i in 1:nrow(setrf)) {
+   #fit and predict
+   frf = randomForest(outcome~., data=promotions_train, 
+                      mtry=setrf[i,1],
+                      ntree=setrf[i,2],
+                      nodesize=10)
+   phat = predict(frf, newdata=promotions_validation, type="prob")[,2]
+   phatL$rf[,i]=phat
+}
+
+tail(frf$err.rate)
+
+```
+
+**We fit boosting models for a few different settings.**
+
+```{r}
+##settings for boosting
+set.seed(123)
+idv = c(2,4)
+ntv = c(1000,5000)
+shv = c(.1,.01)
+(setboost = expand.grid(idv,ntv,shv))
+colnames(setboost) = c("tdepth","ntree","shrink")
+phatL$boost = matrix(0.0,nrow(promotions_validation),nrow(setboost))
+```
+
+**Reminder to make sure the Y variable is 0/1 for the bernoulli distribution that classification boosting requires**
+```{r}
+promotions_trainB <- promotions_train; promotions_train$outcome <- as.numeric(promotions_train$outcome)-1
+promotions_validationB <- promotions_validation; promotions_validation$outcome <- as.numeric(promotions_validation$outcome)-1
+promotions_testB <- promotions_test; promotions_test$outcome <- as.numeric(promotions_test$outcome)-1
+```
+
+**Fitting the boosting**
+```{r}
+promotions_trainB$outcome <- as.character(promotions_trainB$outcome)
+promotions_validationB$outcome <- as.character(promotions_validationB$outcome)
+promotions_testB$outcome <- as.character(promotions_testB$outcome)
+
+for(i in 1:nrow(setboost)) {
+   ##fit and predict
+   fboost = gbm(outcome~., data=promotions_trainB, distribution="bernoulli",
+              n.trees=setboost[i,2],
+              interaction.depth=setboost[i,1],
+              shrinkage=setboost[i,3])
+   
+   phat = predict(fboost,
+                  newdata=promotions_validationB,
+                  n.trees=setboost[i,2],
+                  type="response")
+
+   phatL$boost[,i] = phat
+}
+```
+
+For **classification tree** we have:
+```{r}
+getConfusionMatrix(promotions_validation$outcome, phatL[[1]][,1], 0.5)
+cat('Missclassification rate = ', lossMR(promotions_validation$outcome, phatL[[1]][,1], 0.5), '\n')
+```
+
+For **random forest** we have:
+```{r}
+nrun = nrow(setrf)
+for(j in 1:nrun) {
+  print(setrf[j,])
+  print("Confusion Matrix:")
+  print(getConfusionMatrix(promotions_validation$outcome, phatL[[2]][,j], 0.5))
+  cat('Missclassification rate = ', lossMR(promotions_validation$outcome, phatL[[2]][,j], 0.5), '\n')
+}
+```
+
+Let's take a peek at the most important variables for the best model (the random forest).
+
+```{r,warning=FALSE}
+frf = randomForest(outcome~., data=promotions_train,
+                      mtry=20,
+                      ntree=5000,
+                      nodesize=10)
+
+varImpPlot(frf,
+           sort = T,
+           n.var = 10,
+           main = "Top 10 - Variable Importance")
+```
+
+For **boosting** we have:
+```{r}
+nrun = nrow(setboost)
+for(j in 1:nrun) {
+  print(setboost[j,])
+  print("Confusion Matrix:")
+  print(getConfusionMatrix(promotions_validation$outcome, phatL[[3]][,j], 0.5))
+  cat('Missclassification rate = ', lossMR(promotions_validation$outcome, phatL[[3]][,j], 0.5), '\n')
+}
+```
+
+
+## Deviance
+
+**Plot test set loss --- deviance:**
+
+```{r fig.width=8, fig.height=8}
+
+lossf = function(y,phat,wht=0.0000001) {
+   if(is.factor(y)) y = as.numeric(y)-1
+   phat = (1-wht)*phat + wht*.5 #For numerical reason, we can not do log(0)
+   py = ifelse(y==1, phat, 1-phat)
+   return(-2*sum(log(py)))
+}
+
+# this was somehow stored as a character
+class(phatL$tree[1])
+
+phatL$tree <- as.numeric(phatL$tree)
+phatL$tree <- data.frame(phatL$tree)
+
+lossL = list()
+nmethod = length(phatL)
+for(i in 1:nmethod) {
+   nrun = ncol(phatL[[i]])
+   lvec = rep(0,nrun)
+   for(j in 1:nrun) lvec[j] = lossf(promotions_validation$outcome, phatL[[i]][,j])
+   lossL[[i]]=lvec; names(lossL)[i] = names(phatL)[i]
+}
+lossv = unlist(lossL)
+plot(lossv, ylab="loss on Test", type="n")
+nloss=0
+for(i in 1:nmethod) {
+   ii = nloss + 1:ncol(phatL[[i]])
+   points(ii,lossv[ii],col=i,pch=17)
+   nloss = nloss + ncol(phatL[[i]])
+}
+legend("topright",legend=names(phatL),col=1:nmethod,pch=rep(17,nmethod))
+```
+
+**From each method class, we choose the one that has the lowest error on the validation set.**
+
+```{r}
+nmethod = length(phatL)
+phatBest = matrix(0.0,nrow(promotions_validation),nmethod) # pick off best from each method
+colnames(phatBest) = names(phatL)
+for(i in 1:nmethod) {
+   nrun = ncol(phatL[[i]])
+   lvec = rep(0,nrun)
+   for(j in 1:nrun) lvec[j] = lossf(promotions_validation$outcome,phatL[[i]][,j])
+   imin = which.min(lvec)
+   phatBest[,i] = phatL[[i]][,imin]
+   phatBest[,i] = phatL[[i]][,1]
+}
+```
+
+
+
+\newpage
+
+**We can plot $\hat p$ for best models on the validation set**
+
+```{r fig.width=8, fig.height=8}
+idx=sample(dim(phatBest)[1],1000,replace = FALSE)
+pairs(phatBest[idx,])
+```
+
+\newpage
+
+
+**Each plot relates $\hat{p}$ to $y$.**
+
+**Going from left to right, $\hat{p}$ is from classification tree, random forest, and boosting.**
+
+```{r}
+colnames(phatBest) = c("tree", "rf", "boost")
+tempdf = data.frame(phatBest,y = promotions_validation$outcome)
+
+par(mfrow=c(1,3))
+boxplot(tree~y,tempdf,ylim=c(0,1),cex.lab=1.4,col=c("red","blue"))
+boxplot(rf~y,tempdf,ylim=c(0,1),cex.lab=1.4,col=c("red","blue"))
+boxplot(boost~y,tempdf,ylim=c(0,1),cex.lab=1.4,col=c("red","blue"))
+```
+
+Boosting and random forests both look **good**!   
+Both are **better than the classification tree**!
+
+##
+Using your chosen model, report the propensities ( P(outcome = positive | target_control = target, x) where x represents input variables your model uses ) for the first three records in the test set. Our interest is not just how the promotion did overall, nor is it whether we can predict the probability that a customer will respond favorably to a promotion. Rather our goal is to predict how much (positive) impact the promotion will have on a specific customer. That way the manager can direct its limited resources toward the customers who are the most persuadable â those for whom sending the promotion will have the greatest positive effect.
+
+**Of the models we previously vetted, let's use the best random forest model.**
+
+**Let's also now use the full training set (train + validation).**
+
+```{r,}
+promotions_train <- read.csv("c:/Users/blallen22/Downloads/promotions_train.csv", header = TRUE)
+```
+
+**We should make the target_control values in the test set all == "target", and then run the probabilities.**
+ 
+```{r,echo=FALSE,warning=FALSE,results='hide',message=FALSE}
+# do some preprocessing
+set.seed(123)
+promotions_test_target <- promotions_test
+promotions_test_target$target_control <- as.factor(promotions_test_target$target_control)
+levels(promotions_test_target$target_control) <- c(levels(promotions_test_target$target_control))
+promotions_test_target$target_control[promotions_test_target$target_control=="control"] <- "target"
+
+table(promotions_test_target$target_control)
+
+promotions_train$outcome <- as.factor(promotions_train$outcome)
+promotions_test_target$outcome <- as.factor(promotions_test_target$outcome)
+
+##settings for randomForest
+p=ncol(promotions_train)-1
+mtryv = c(p, sqrt(p))
+ntreev = c(500,5000)
+(setrf = expand.grid(mtryv,ntreev))  # this contains all settings to try
+colnames(setrf)=c("mtry","ntree")
+phatL$rf = matrix(0.0,nrow(promotions_test_target),nrow(setrf))  # we will store results here
+
+# fit rf
+for(i in 1:nrow(setrf)) {
+   #fit and predict
+   frf = randomForest(outcome~., data=promotions_train, 
+                      mtry=setrf[i,1],
+                      ntree=setrf[i,2],
+                      nodesize=10)
+   phat = predict(frf, newdata=promotions_test_target, type="prob")[,2]
+   phatL$rf[,i]=phat
+}
+
+nrun = nrow(setrf)
+for(j in 1:nrun) {
+  print(setrf[j,])
+  print("Confusion Matrix:")
+  print(getConfusionMatrix(promotions_test_target$outcome, phatL[[2]][,j], 0.5))
+  cat('Missclassification rate = ', lossMR(promotions_test_target$outcome, phatL[[2]][,j], 0.5), '\n')
+}
+
+# given this, let's use the data from the best of these
+# let's store the P(outcome = positive | target_control = target, x) in a new object for future reference
+promotions_test_uplift <- promotions_test
+promotions_test_uplift$prob_target <- phatL$rf[,1]
+```
+
+**Now let's solve for P(outcome = positive | target_control = control, x).**
+
+```{r,}
+# do some preprocessing
+set.seed(123)
+promotions_test_control <- promotions_test
+promotions_test_control$target_control <- as.factor(promotions_test_control$target_control)
+levels(promotions_test_control$target_control) <- c(levels(promotions_test_control$target_control))
+promotions_test_control$target_control[promotions_test_control$target_control=="target"] <- "control"
+
+table(promotions_test_control$target_control)
+
+drops <- c("bestrfpred")
+promotions_test_control <- promotions_test_control[,!(names(promotions_test_control) %in% drops)]
+
+promotions_train$outcome <- as.factor(promotions_train$outcome)
+promotions_test_control$outcome <- as.factor(promotions_test_control$outcome)
+
+##settings for randomForest
+p=ncol(promotions_train)-1
+mtryv = c(p, sqrt(p))
+ntreev = c(500,5000)
+(setrf = expand.grid(mtryv,ntreev))  # this contains all settings to try
+colnames(setrf)=c("mtry","ntree")
+phatL$rf = matrix(0.0,nrow(promotions_test_control),nrow(setrf))  # we will store results here
+
+# fit rf
+for(i in 1:nrow(setrf)) {
+   #fit and predict
+   frf = randomForest(outcome~., data=promotions_train, 
+                      mtry=setrf[i,1],
+                      ntree=setrf[i,2],
+                      nodesize=10)
+   phat = predict(frf, newdata=promotions_test_control, type="prob")[,2]
+   phatL$rf[,i]=phat
+}
+
+nrun = nrow(setrf)
+for(j in 1:nrun) {
+  print(setrf[j,])
+  print("Confusion Matrix:")
+  print(getConfusionMatrix(promotions_test_control$outcome, phatL[[2]][,j], 0.5))
+  cat('Missclassification rate = ', lossMR(promotions_test_control$outcome, phatL[[2]][,j], 0.5), '\n')
+}
+
+# given this, let's use the data from the sbest of these
+# let's store the p(outcome = positive | target_control = target, x) in a new object for future reference
+promotions_test_uplift$prob_control <- phatL$rf[,1]
+```
+
+##
+
+For each record in the test set, compute the uplift defined as P(outcome = positive | target_control = target, x) â P(outcome = positive | target_control = control, x) Report the uplift for the first three records.
+
+**Let's calculate our uplift, where P(outcome = positive | target_control = target, x) - P(outcome = positive | target_control = control, x).**
+
+```{r,}
+promotions_test_uplift$uplift <- (promotions_test_uplift$prob_target - promotions_test_uplift$prob_control)
+
+head(promotions_test_uplift$uplift)
+```
+
+**Report the uplift for the first three records.**
+
+```{r,}
+promotions_test_uplift$uplift[1:3]
+```
+
+##
+
+**Sort the customers according to the estimated uplift from largest to lowest and divide them into 30 bins (each bin will have 100 customers).**
+
+```{r,}
+promotions_test_uplift <- promotions_test_uplift[order(promotions_test_uplift$uplift, decreasing = TRUE),]
+
+# determine the number of observations per bin
+nObs <- 100
+
+# create data labels
+
+promotions_test_uplift$bins <- ceiling(seq_along(promotions_test_uplift$uplift)/nObs)[rank(promotions_test_uplift$uplift, ties.method = "first")]
+
+# promotions_test_uplift$bins
+
+table(promotions_test_uplift$outcome[promotions_test_uplift$bins==1],
+      promotions_test_uplift$target_control[promotions_test_uplift$bins==1])
+```
+
+For each bin, estimate the effect of promotion P(outcome = positive | target_control = target) â P(outcome = positive | target_control = control).
+
+**Calculate lift**
+
+```{r confusion matrix,}
+# creates a confusion matrix for each bin
+conf_matrix <- function(input)
+  {
+  table(promotions_test_uplift$outcome[promotions_test_uplift$bins==input],
+      promotions_test_uplift$target_control[promotions_test_uplift$bins==input])
+}
+
+confm1 <- conf_matrix(1)
+confm2 <- conf_matrix(2)
+confm3 <- conf_matrix(3)
+confm4 <- conf_matrix(4)
+confm5 <- conf_matrix(5)
+confm6 <- conf_matrix(6)
+confm7 <- conf_matrix(7)
+confm8 <- conf_matrix(8)
+confm9 <- conf_matrix(9)
+confm10 <- conf_matrix(10)
+confm11 <- conf_matrix(11)
+confm12 <- conf_matrix(12)
+confm13 <- conf_matrix(13)
+confm14 <- conf_matrix(14)
+confm15 <- conf_matrix(15)
+confm16 <- conf_matrix(16)
+confm17 <- conf_matrix(17)
+confm18 <- conf_matrix(18)
+confm19 <- conf_matrix(19)
+confm20 <- conf_matrix(20)
+confm21 <- conf_matrix(21)
+confm22 <- conf_matrix(22)
+confm23 <- conf_matrix(23)
+confm24 <- conf_matrix(24)
+confm25 <- conf_matrix(25)
+confm26 <- conf_matrix(26)
+confm27 <- conf_matrix(27)
+confm28 <- conf_matrix(28)
+confm29 <- conf_matrix(29)
+confm30 <- conf_matrix(30)
+
+
+# calculates the lift
+# NOTE: the x,y setup is different from lecture notes. here, [2,2] is true positive, for example
+lift_function <- function(input)
+{
+  ((input[2,2]/(input[2,2]+input[1,2]))/((input[2,2]+input[2,1])/(input[1,1]+input[1,2]+input[2,1]+input[2,2])))
+}
+
+# create a data.frame to store the outputs in
+result <- data.frame(matrix(nrow = 30, ncol = 2))
+colnames(result) <- c("i", "lift")
+
+for (i in 1:30) {
+  lift <- conf_matrix(i)
+  lift <- lift_function(lift)
+  result[i, 1] <- i
+  result[i, 2] <- lift
+}
+
+result
+
+promotions_test_uplift_binnedlifts <- merge(promotions_test_uplift, result, by.x = "bins", 
+                                            by.y = "i", all.x = TRUE)
+
+plot(promotions_test_uplift_binnedlifts$lift, promotions_test_uplift_binnedlifts$bins)
+
+plot(promotions_test_uplift_binnedlifts$bins, promotions_test_uplift_binnedlifts$lift)
+```
