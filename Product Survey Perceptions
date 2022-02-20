@@ -1,0 +1,908 @@
+---
+title: "Product Survey Analysis"
+author: "Brandon Allen"
+output:
+  pdf_document:
+    number_sections: no
+    toc: no
+urlcolor: blue
+graphics: yes
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE), echo = TRUE, comment = NA, message = FALSE, eval = TRUE,
+                      fig.width = 6, fig.height = 4.5, fig.align = "right")
+```
+
+Import .csv
+```{r,}
+library(ggplot2)
+library(reshape)
+library(dplyr)
+
+nps <- read.csv("C:/Users/blallen22/Documents/NPS Survey Numeric.csv", header = TRUE)
+
+attach(nps)
+```
+
+### Rankings
+### Note: We structured our rankings data by flipping the order of the numeric values, primarily for the purpose of more easily calculating correlation, visualizing the results, and more intuitively interpreting the significance tests.
+
+```{r,}
+rankings <- data.frame(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy, Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy, Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace)
+
+rankings <- rankings %>%
+  rename(HappyVR = Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, PalNow = Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy, WeTime = Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy, Talkspace = Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace
+    )
+```
+
+```{r,}
+apply(rankings, 2, mean)
+
+apply(rankings, 2, median)
+```
+
+### Ranking Tests
+
+PalNow is higher ranked than HappyVR.
+```{r,}
+t.test(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy)
+```
+
+```{r,}
+kruskal.test(list(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy))
+```
+
+WeTime is higher ranked than HappyVR.
+```{r,}
+t.test(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy)
+```
+
+```{r,}
+kruskal.test(list(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy))
+```
+
+HappyVR and Talkspace are equally ranked.
+```{r,}
+t.test(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace)
+```
+
+```{r,}
+kruskal.test(list(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace))
+```
+
+PalNow is higher ranked than HappyVR.
+```{r,}
+t.test(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy)
+```
+
+```{r,}
+kruskal.test(list(Ranking_1_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Happy.VR.Virtual.Reality.Therapy, Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy))
+```
+
+WeTime and PalNow are ranked equally.
+```{r,}
+t.test(Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy, Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy)
+```
+
+```{r,}
+kruskal.test(list(Ranking_2_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....PalNow.Instant.Therapy, Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy))
+```
+
+WeTime is ranked higher than Talkspace.
+```{r,}
+t.test(Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy, Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace)
+```
+
+```{r,}
+kruskal.test(list(Ranking_3_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....WeTime.Couples.Therapy, Ranking_4_Rank.the.4.new.service.concepts.in.order.of.preference..most.preferred.concept.at.the.top.....Talkspace))
+```
+
+Correlation between likely to buy and value for money.
+
+HappierVR has a high correlation.
+```{r,}
+cor(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy., HappyVR1e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+PalNow has a high correlation.
+```{r,}
+cor(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product., PalNow2e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+WeTime has a high correlation.
+```{r,}
+cor(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product., WeTime3e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+Talkspace has a high correlation.
+```{r,}
+cor(Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product., Talkspace4e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+
+\newpage
+
+Compare mean scores from 3 new concepts vs. benchmark on all standard concept evaluation questions (including Purchase Intent, but see #2 below).  Which concepts score higher/similar/lower than benchmark on each question?
+
+### How likely would you be to download this mobile app?
+### HappyVR is significantly more likely to be downloaded than the other apps.
+### The other three apps are all similarly likely to be downloaded as each other.
+
+```{r,}
+download <- data.frame(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app., PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app., WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app., Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+```{r,}
+apply(download, 2, mean)
+```
+
+HappyVR is more likely to download than PalNow
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app., PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+HappyVR more likely to download than WeTime
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app., WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+HappyVR is more likely to download than Talkspace
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app., Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+PalNow and WeTime are equally likely to be downloaded.
+```{r,}
+t.test(PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app., WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+PalNow and Talkspace are equally likely to be downloaded.
+```{r,}
+t.test(PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app., Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+WeTime and Talkspace are equally likely to be downloaded.
+```{r,}
+t.test(WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app., Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.)
+```
+
+
+
+\newpage
+### Considering everything about this concept, how likely would you be to buy?
+### HappyVR is significantly more likely to be bought compared to the other apps.
+### The other apps are similarly likely to be bought to each other.
+
+```{r,}
+buy <- data.frame(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy., PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product., WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product., Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+```
+
+```{r,}
+apply(buy, 2, mean)
+```
+
+HappyVR is more likely to be bought than PalNow.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy., PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+```
+
+HappyVR is more likely to be bought than WeTime.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy., WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.)
+```
+
+HappyVR is more likely to be bought than Talkspace.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy., Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+```
+
+PalNow and WeTime are equally likely to be bought.
+```{r,}
+t.test(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product., WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.)
+```
+
+PalNow and Talkspace are equally likely to be bought.
+```{r,}
+t.test(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product., Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+```
+
+WeTime and Talkspace are equally likely to be bought.
+```{r,}
+t.test(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product., Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+```
+
+
+\newpage
+### How often would you use this service, if ever, if it was available?
+### HappyVR will be used significantly more than the other apps.
+### The other apps will be similarly used compared to each other.
+
+```{r,}
+use <- data.frame(HappyVR1d_How.often.would.you.use.this.service..if.ever..if.it.was.available., PalNow2d_How.often.would.you.use.this.service..if.ever..if.it.was.available., WeTime3d_How.often.would.you.use.this.service..if.ever..if.it.was.available., Talkspace4d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+```{r,}
+apply(use, 2, mean)
+```
+
+HappyVR is going to be used more than PalNow.
+```{r,}
+t.test(HappyVR1d_How.often.would.you.use.this.service..if.ever..if.it.was.available., PalNow2d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+HappyVR is going to be used more than WeTime.
+```{r,}
+t.test(HappyVR1d_How.often.would.you.use.this.service..if.ever..if.it.was.available., WeTime3d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+HappyVR is going to be used more than Talkspace.
+```{r,}
+t.test(HappyVR1d_How.often.would.you.use.this.service..if.ever..if.it.was.available., Talkspace4d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+PalNow and WeTime will be used the same amount.
+```{r,}
+t.test(PalNow2d_How.often.would.you.use.this.service..if.ever..if.it.was.available., WeTime3d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+PalNow and Talkspace will be used the same amount.
+```{r,}
+t.test(PalNow2d_How.often.would.you.use.this.service..if.ever..if.it.was.available., Talkspace4d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+WeTime and Talkspace will be used the same amount.
+```{r,}
+t.test(WeTime3d_How.often.would.you.use.this.service..if.ever..if.it.was.available., Talkspace4d_How.often.would.you.use.this.service..if.ever..if.it.was.available.)
+```
+
+\newpage
+### Considering the price as shown, which statement best describes how you feel about the value for the money of this service?
+### HappyVR is significantly better value for money than the other apps.
+### WeTime is significantly better value for money than Talkspace.
+
+```{r,}
+value <- data.frame(HappyVR1e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., PalNow2e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., WeTime3e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., Talkspace4e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+```{r,}
+apply(value, 2, mean)
+```
+
+HappyVR is a better value for money than PalNow.
+```{r,}
+t.test(HappyVR1e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., PalNow2e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+HappyVR is a better value for money than WeTime.
+```{r,}
+t.test(HappyVR1e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., WeTime3e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+HappyVR is a better value for money than Talkspace.
+```{r,}
+t.test(HappyVR1e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., Talkspace4e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+PalNow and WeTime are the same value for money.
+```{r,}
+t.test(PalNow2e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., WeTime3e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+PalNow and Talkspace are the same value for money.
+```{r,}
+t.test(PalNow2e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., Talkspace4e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+WeTime is significantly better value for money than Talkspace.
+```{r,}
+t.test(WeTime3e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service., Talkspace4e_Considering.the.price.as.shown..which.statement.best.describes.how.you.feel.about.the.value.for.the.money.of.this.service.)
+```
+
+
+\newpage
+### How would you rate this service in terms of being new and different from others currently available?
+### HappyVR is significantly newer and more different than the other apps.
+
+```{r,}
+unique <- data.frame(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+```{r,}
+apply(unique, 2, mean)
+```
+
+HappyVR is newer and more different than PalNow.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+HappyVR is newer and more different than WeTime.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+HappyVR is newer and more different than Talkspace.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+PalNow and WeTime are the same level of being new and different.
+```{r,}
+t.test(PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+PalNow and Talkspace are the same level of being new and different.
+```{r,}
+t.test(PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+WeTime and Talkspace are the same level of being new and different.
+```{r,}
+t.test(WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+
+\newpage
+### Which statement best describes how you feel about the believability of the statements made about this service?
+### All of the apps are equally believable.
+
+```{r,}
+believe <- data.frame(HappyVR1g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., PalNow2g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., WeTime3g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., Talkspace4g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+```{r,}
+apply(believe, 2, mean)
+```
+
+HappyVR and PalNow are equally believable.
+```{r,}
+t.test(HappyVR1g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., PalNow2g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+HappyVR and WeTime are equally believable.
+```{r,}
+t.test(HappyVR1g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., WeTime3g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+HappyVR and Talkspace are equally believable.
+```{r,}
+t.test(HappyVR1g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., Talkspace4g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+PalNow and WeTime are equally believable.
+```{r,}
+t.test(PalNow2g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., WeTime3g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+PalNow and Talkspace are equally believable.
+```{r,}
+t.test(PalNow2g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., Talkspace4g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+WeTime and Talkspace are equally believable.
+```{r,}
+t.test(WeTime3g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service., Talkspace4g_Which.statement.best.describes.how.you.feel.about.the.believability.of.the.statements.made.about.this.service.)
+```
+
+
+\newpage
+### How would you rate this service in terms of being new and different from others currently available?
+### HappyVR is significantly better value for money than the other apps.
+### WeTime is significantly better value for money than Talkspace.
+
+```{r,}
+unique <- data.frame(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+```{r,}
+apply(unique, 2, mean)
+```
+
+HappyVR is newer and more different than PalNow.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+HappyVR is newer and more different than WeTime.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+HappyVR is newer and more different than Talkspace.
+```{r,}
+t.test(HappyVR1f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+PalNow and WeTime are the same level of being new and different.
+```{r,}
+t.test(PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+PalNow and Talkspace are the same level of being new and different.
+```{r,}
+t.test(PalNow2f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+WeTime and Talkspace are the same level of being new and different.
+```{r,}
+t.test(WeTime3f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available., Talkspace4f_How.would.you.rate.this.service.in.terms.of.being.new.and.different.from.others.currently.available.)
+```
+
+
+\newpage
+### For Purchase Intent:  Calculate Top Box and Top 2 Box Purchase Intent scores.  Mean scores can be misleading for purchase intent, because only people in the Top 2 box are likely to buy.  Compare Top/Top 2 box scores for new concepts vs. benchmark, and vs. one another.  Which ones score higher/similar/lower than the benchmark?
+
+### Note: given the small N for top 2 box scores, we decided to forgo the top box score because it would yield unusably small N.
+
+```{r,}
+HappyVR_top_two_box <- as.factor(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.)
+HappyVR_top_two_box <- recode(HappyVR_top_two_box, '1' = '0', '2' = '0', '3' = '0', '4' = '1', '5' = '1')
+
+PalNow_top_two_box <- as.factor(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+PalNow_top_two_box <- recode(PalNow_top_two_box, '1' = '0', '2' = '0', '3' = '0', '4' = '1', '5' = '1')
+  
+WeTime_top_two_box <- as.factor(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.)
+WeTime_top_two_box <- recode(WeTime_top_two_box, '1' = '0', '2' = '0', '3' = '0', '4' = '1', '5' = '1')
+  
+Talkspace_top_two_box <- as.factor(Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.)
+Talkspace_top_two_box <- recode(Talkspace_top_two_box, '1' = '0', '2' = '0', '3' = '0', '4' = '1', '5' = '1')
+```
+
+```{r,}
+table(HappyVR_top_two_box)
+```
+
+```{r,}
+table(PalNow_top_two_box)
+```
+
+```{r,}
+table(WeTime_top_two_box)
+```
+
+```{r,}
+table(Talkspace_top_two_box)
+```
+
+### McNemar Tests
+
+HappyVR has more top 2 box scores than PalNow.
+```{r,}
+mcnemar.test(HappyVR_top_two_box, PalNow_top_two_box)
+```
+
+HappyVR has more top 2 box scores than WeTime.
+```{r,}
+mcnemar.test(HappyVR_top_two_box, WeTime_top_two_box)
+```
+
+HappyVR has more top 2 box scores than Talkspace.
+```{r,}
+mcnemar.test(HappyVR_top_two_box, Talkspace_top_two_box)
+```
+
+PalNow and WeTime have similar top 2 box scores.
+```{r,}
+mcnemar.test(PalNow_top_two_box, WeTime_top_two_box)
+```
+
+PalNow and Talkspace have similar top 2 box scores.
+```{r,}
+mcnemar.test(PalNow_top_two_box, Talkspace_top_two_box)
+```
+
+WeTime has more top 2 box scores than Talkspace.
+```{r,}
+mcnemar.test(WeTime_top_two_box, Talkspace_top_two_box)
+```
+
+
+\newpage
+### Using the demographic/behavioral/attitudinal questions from our survey, look for differences by consumer segment in Top Box/Top 2 Box Purchase Intent scores (as well as differences on other standard concept evaluation questions).  Which segments are more/less attracted to each concept?
+
+Create indicators for "In a relationship" and "Married." Also for mental health.
+```{r,}
+In_a_relationship <- as.factor(Q62_What.is.your.relationship.status.)
+In_a_relationship <- recode(In_a_relationship, '1' = 'Not in relationship', '2' = 'In a relationship', '3' = 'Not in relationship')
+
+Married <- as.factor(Q63_What.is.your.current.marital.status.)
+Married <- recode(Married, '1' = 'Not married', '2' = 'Married', '3' = 'Not married', '4' = 'Not married', '5' = 'Not married')
+
+Mental_health <- as.factor(Q59_How.would.you.rate.your.mental.health.overall.)
+Mental_health <- recode(Mental_health, '2' = 'Good', '3' = 'Good', '4' = 'Not good', '5' = 'Not good')
+```
+
+
+There are no gender preferences for HappyVR
+```{r,}
+chisq.test(table(Quota.Q.s_How.would.you.describe.your.gender., HappyVR_top_two_box)
+)
+table(Quota.Q.s_How.would.you.describe.your.gender., HappyVR_top_two_box)
+```
+
+There are no gender preferences for PalNow
+```{r,}
+chisq.test(table(Quota.Q.s_How.would.you.describe.your.gender., PalNow_top_two_box)
+)
+table(Quota.Q.s_How.would.you.describe.your.gender., PalNow_top_two_box)
+```
+
+There are no gender preferences for WeTime
+```{r,}
+chisq.test(table(Quota.Q.s_How.would.you.describe.your.gender., WeTime_top_two_box)
+)
+table(Quota.Q.s_How.would.you.describe.your.gender., WeTime_top_two_box)
+```
+
+There are no gender preferences for Talkspace
+```{r,}
+chisq.test(table(Quota.Q.s_How.would.you.describe.your.gender., Talkspace_top_two_box)
+)
+table(Quota.Q.s_How.would.you.describe.your.gender., Talkspace_top_two_box)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+There are no gender preferences for HappyVR
+```{r,}
+chisq.test(table(Mental_health, HappyVR_top_two_box)
+)
+table(Mental_health, HappyVR_top_two_box)
+```
+
+There are no gender preferences for PalNow
+```{r,}
+chisq.test(table(Mental_health, PalNow_top_two_box)
+)
+table(Mental_health, PalNow_top_two_box)
+```
+
+There are no gender preferences for WeTime
+```{r,}
+chisq.test(table(Mental_health, WeTime_top_two_box)
+)
+table(Mental_health, WeTime_top_two_box)
+```
+
+There are no gender preferences for Talkspace
+```{r,}
+chisq.test(table(Mental_health, Talkspace_top_two_box)
+)
+table(Mental_health, Talkspace_top_two_box)
+```
+
+
+
+
+
+
+
+There are no relationship preferences for HappyVR
+```{r,}
+chisq.test(table(In_a_relationship, HappyVR_top_two_box)
+)
+table(In_a_relationship, HappyVR_top_two_box)
+```
+
+There are no relationship preferences for PalNow
+```{r,}
+chisq.test(table(In_a_relationship, PalNow_top_two_box)
+)
+table(In_a_relationship, PalNow_top_two_box)
+```
+
+There are no relationship preferences for WeTime
+```{r,}
+chisq.test(table(In_a_relationship, WeTime_top_two_box)
+)
+table(In_a_relationship, WeTime_top_two_box)
+```
+
+There are no relationship preferences for Talkspace
+```{r,}
+chisq.test(table(In_a_relationship, Talkspace_top_two_box)
+)
+table(In_a_relationship, Talkspace_top_two_box)
+```
+
+
+
+
+
+
+
+There are no marriage preferences for HappyVR
+```{r,}
+chisq.test(table(Married, HappyVR_top_two_box)
+)
+table(Married, HappyVR_top_two_box)
+```
+
+There are no marriage preferences for PalNow
+```{r,}
+chisq.test(table(Married, PalNow_top_two_box)
+)
+table(Married, PalNow_top_two_box)
+```
+
+There are no marriage preferences for WeTime
+```{r,}
+chisq.test(table(Married, WeTime_top_two_box)
+)
+table(Married, WeTime_top_two_box)
+```
+
+There are no marriage preferences for Talkspace
+```{r,}
+chisq.test(table(Married, Talkspace_top_two_box)
+)
+table(Married, Talkspace_top_two_box)
+```
+
+
+
+
+
+People in a relationship were similarly likely to buy as people not in a relationship.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[In_a_relationship=="In a relationship"], HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[In_a_relationship=="Not in relationship"])
+
+t.test(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[In_a_relationship=="In a relationship"], PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[In_a_relationship=="Not in relationship"])
+
+t.test(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[In_a_relationship=="In a relationship"], WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[In_a_relationship=="Not in relationship"])
+
+t.test(Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[In_a_relationship=="In a relationship"], Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[In_a_relationship=="Not in relationship"])
+```
+
+
+
+Married people were just as likely as non-married people to buy.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[Married=="Married"], HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[Married=="Not married"])
+
+t.test(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Married=="Married"], PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Married=="Not married"])
+
+t.test(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[Married=="Married"], WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[Married=="Not married"])
+
+t.test(Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Married=="Married"], Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Married=="Not married"])
+```
+
+
+
+
+
+
+
+People with good mental health were as likely to buy as people with poor mental health.
+```{r,}
+t.test(HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[Mental_health=="Good"], HappyVR1a_Considering.everything.about.this.concept..how.likely.would.you.be.to.buy.[Mental_health=="Not good"])
+
+t.test(PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Mental_health=="Good"], PalNow2a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Mental_health=="Not good"])
+
+t.test(WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[Mental_health=="Good"], WeTime3a_Considering.the.price.as.shown..how.likely.would.you.be.to.subscribe.to.this.product.[Mental_health=="Not good"])
+
+t.test(Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Mental_health=="Good"], Talkspace4a_Considering.the.price.as.shown..how.likely.would.you.be.to.buy.this.product.[Mental_health=="Not good"])
+```
+
+People with good mental health were as likely to download as people with poor mental health.
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Good"], HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Not good"])
+
+t.test(PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Good"], PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Not good"])
+
+t.test(WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Good"], WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Not good"])
+
+t.test(Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Good"], Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[Mental_health=="Not good"])
+```
+
+
+
+
+
+
+
+People in a relationship were similarly likely to buy as people not in a relationship.
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="In a relationship"], HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="Not in relationship"])
+
+t.test(PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="In a relationship"], PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="Not in relationship"])
+
+t.test(WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="In a relationship"], WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="Not in relationship"])
+
+t.test(Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="In a relationship"], Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[In_a_relationship=="Not in relationship"])
+```
+
+
+
+Married people were just as likely as non-married people to buy.
+```{r,}
+t.test(HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Married"], HappyVR1APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Not married"])
+
+t.test(PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Married"], PalNow2APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Not married"])
+
+t.test(WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Married"], WeTime3APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Not married"])
+
+t.test(Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Married"], Talkspace4APPS_How.likely.would.you.be.to.download.this.mobile.app.[Married=="Not married"])
+```
+
+
+
+
+
+
+
+
+
+
+Sample sizes are too small to apply statistical tests to age ranges.
+```{r,}
+table(Q60_Which.of.the.below.age.ranges.do.you.fall.in., HappyVR_top_two_box)
+```
+
+```{r,}
+table(Q60_Which.of.the.below.age.ranges.do.you.fall.in., PalNow_top_two_box)
+```
+
+```{r,}
+table(Q60_Which.of.the.below.age.ranges.do.you.fall.in., WeTime_top_two_box)
+```
+
+```{r,}
+table(Q60_Which.of.the.below.age.ranges.do.you.fall.in., Talkspace_top_two_box)
+```
+
+
+
+Sample sizes are too small to apply statistical tests to mental health categories.
+```{r,}
+table(Q59_How.would.you.rate.your.mental.health.overall., HappyVR_top_two_box)
+```
+
+```{r,}
+table(Q59_How.would.you.rate.your.mental.health.overall., PalNow_top_two_box)
+```
+
+```{r,}
+table(Q59_How.would.you.rate.your.mental.health.overall., WeTime_top_two_box)
+```
+
+```{r,}
+table(Q59_How.would.you.rate.your.mental.health.overall., Talkspace_top_two_box)
+```
+
+
+Sample sizes are too small to apply statistical tests to relationship status.
+```{r,}
+table(Q62_What.is.your.relationship.status., HappyVR_top_two_box)
+```
+
+```{r,}
+table(Q62_What.is.your.relationship.status., PalNow_top_two_box)
+```
+
+```{r,}
+table(Q62_What.is.your.relationship.status., WeTime_top_two_box)
+```
+
+```{r,}
+table(Q62_What.is.your.relationship.status., Talkspace_top_two_box)
+```
+
+
+Sample sizes are too small to apply statistical tests to marital status.
+```{r,}
+table(Q63_What.is.your.current.marital.status., HappyVR_top_two_box)
+```
+
+```{r,}
+table(Q63_What.is.your.current.marital.status., PalNow_top_two_box)
+```
+
+```{r,}
+table(Q63_What.is.your.current.marital.status., WeTime_top_two_box)
+```
+
+```{r,}
+table(Q63_What.is.your.current.marital.status., Talkspace_top_two_box)
+```
+
+
+\newpage
+### Analyze open-ended feedback for each concept (likes, dislikes) to assess what people did/didn't like, and identify common themes.  Use the Qualtrics TextiQ feature or a free online Wordcloud generator.
+
+This analysis was completed in Excel. Instead of analyzing word clouds (Which look nice but can reflect one's interpretive biases), we read respondents' open-ended comments and manually classified them based on the primary themes.
+
+The convenience of accessing therapy was the most-liked feature: of respondents who shared what they liked (n=22), 32% highlighted the convenience of accessing therapy.
+
+Of the 23 respondents who shared dislikes about WeTime, 39% (9) highlighted the price.
+
+
+
+\newpage
+### Analyze mean scores of Needs Statements.  Which needs are most important?
+
+```{r,}
+attitudinal <- data.frame(C2.Needs_1_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.time.to.practice.self.care, C2.Needs_2_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.convenient.form.of.mental.healthcare, C2.Needs_3_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.on.demand.access.to.a.therapist, C2.Needs_4_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.someone.outside.of.my.family.and.friends.to.talk.to, C2.Needs_5_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.talk.to.someone.about.mental.health.who.is.in.a.similar.situtaion.as.me, C2.Needs_6_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....If.I.was.to.work.with.a.therapist..I.need.them.to.be.fully.licensed, C2.Needs_7_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.consistency.in.the.mental.health.professional.I.see, C2.Needs_8_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.traditional.method.for.mental.health.care, C2.Needs_9_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.access.to.specific.mental.health.topics, C2.Needs_10_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.physically.see.the.therapist.I.m.working.with)
+```
+
+
+The top three highest rated attitudinal data are therapist licensure (4.1), consistently seeing the same mental health professional (3.7), and needing time to practice self care (3.5).
+```{r,}
+apply(attitudinal, 2, mean)
+```
+
+
+No difference by gender for "I need time to practice self care."
+```{r,}
+t.test(C2.Needs_1_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.time.to.practice.self.care[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_1_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.time.to.practice.self.care[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need a more convenient form of mental healthcare."
+```{r,}
+t.test(C2.Needs_2_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.convenient.form.of.mental.healthcare[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_2_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.convenient.form.of.mental.healthcare[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need on-demand access to a therapist."
+```{r,}
+t.test(C2.Needs_3_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.on.demand.access.to.a.therapist[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_3_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.on.demand.access.to.a.therapist[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need someone outside fo my family and friends to talk to."
+```{r,}
+t.test(C2.Needs_4_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.someone.outside.of.my.family.and.friends.to.talk.to[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_4_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.someone.outside.of.my.family.and.friends.to.talk.to[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need to talk to someone about mental health who is in a similar situation as me."
+```{r,}
+t.test(C2.Needs_5_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.talk.to.someone.about.mental.health.who.is.in.a.similar.situtaion.as.me[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_5_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.talk.to.someone.about.mental.health.who.is.in.a.similar.situtaion.as.me[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "If I was to work with a therapist, I need them to be fully licensed."
+```{r,}
+t.test(C2.Needs_6_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....If.I.was.to.work.with.a.therapist..I.need.them.to.be.fully.licensed[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_6_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....If.I.was.to.work.with.a.therapist..I.need.them.to.be.fully.licensed[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need consistency in the mental health professional I see."
+```{r,}
+t.test(C2.Needs_7_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.consistency.in.the.mental.health.professional.I.see[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_7_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.consistency.in.the.mental.health.professional.I.see[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need a more traditional method for mental health care."
+```{r,}
+t.test(C2.Needs_8_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.traditional.method.for.mental.health.care[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_8_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.a.more.traditional.method.for.mental.health.care[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need access to specific mental health topics."
+```{r,}
+t.test(C2.Needs_9_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.access.to.specific.mental.health.topics[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_9_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.access.to.specific.mental.health.topics[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+No difference by gender for "I need to physically see the therapist I'm working with."
+```{r,}
+t.test(C2.Needs_10_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.physically.see.the.therapist.I.m.working.with[Quota.Q.s_How.would.you.describe.your.gender.=="1"], C2.Needs_10_When.thinking.about.digital.mental.health.applications..how.much.do.you.agree.or.disagree.with.the.following.statements....I.need.to.physically.see.the.therapist.I.m.working.with[Quota.Q.s_How.would.you.describe.your.gender.=="2"])
+```
+
+
+### Any concept that scored poorly:
+We felt that no particular concept scored poorly compared to the others. They were generally close, although with everything considered we were able to identify respective Winner, On the Fence, and Lost Cause below.
+
+
+### Any concept that scored well:
+Based on our Excel-based analyses, we determined that our preferred concept, WeTalk, can be enhanced by adjusting the price. We further assert that WeTime is especially attractive to people who identified as "in a relationship." WeTime was also the most attractive option (but perhaps not significantly) in the "dating" and "not seeking a relationship" segments.
+
+### Based on all of the above analyses, what do you recommend for each concept?
+
+Winner: WeTime can be improved by adjusting the price.
+On the Fence: HappyVR was received positively by the survey respondents on certain measures, which we believe to be in part due to its dramatically lower price compared to WeTime and PalNow. If we were to yield more revenue from this product, it could be a reasonable product to bring to market.
+Lost Cause: PalNow performed well but was less distinguishable in survey results compared to HappyVR and WeTime.
