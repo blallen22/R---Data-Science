@@ -1,0 +1,536 @@
+> Use the starter code to load the requisite packages
+
+```{r starter code to load the data,echo=TRUE,results='hide',warning=FALSE,message=FALSE}
+#the below is the starter code that loads the necessary packages
+PackageList=c("MASS", 
+              "ISLR",
+              "animation",
+              "ElemStatLearn",
+              "glmnet",
+              "textir",
+              "nnet",
+              "methods",
+              "statmod",
+              "stats",
+              "graphics",
+              "RCurl",
+              "jsonlite",
+              "tools",
+              "utils",
+              "data.table",
+              "gbm",
+              "ggplot2",
+              "randomForest",
+              "tree",
+              "class",
+              "kknn",
+              "e1071",
+              "data.table",
+              "R.utils",
+              "reshape2",
+              "lattice",
+              "curl",
+              "RColorBrewer",
+              "gbm",
+              "recommenderlab")
+NewPackages=PackageList[!(PackageList %in% 
+                            installed.packages()[,"Package"])]
+if(length(NewPackages)) install.packages(NewPackages)
+lapply(PackageList,require,character.only=TRUE)#array function
+
+if (!("h20" %in% rownames(installed.packages()))) { 
+  # Now we download, install and initialize the H2O package for R.
+    install.packages("h2o", 
+                     type="source", 
+                     repos=(c("http://h2o-release.s3.amazonaws.com/h2o/master/3232/R")))
+}
+
+
+```
+
+> Use the starter code to load the requisite dataset
+
+```{r starter code,echo=TRUE,results='hide',warning=FALSE,message=FALSE}
+# download the data
+# download.file("http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Video_Games_5.json.gz",destfile = "reviews_Video_Games_5.json.gz")
+
+
+# if(!file.exists("videoGames.json.gz")){
+#   download.file( "https://github.com/ChicagoBoothML/MachineLearning_Fall2015/raw/master/Programming%20Scripts/Lecture07/hw/videoGames.json.gz",destfile="videoGames.json.gz")
+# }
+
+download.file('https://github.com/ChicagoBoothML/ML2016/raw/master/hw04/videoGames.json.gz', 'videoGames.json.gz')
+
+# prepare data for analysis
+# always set the seed so we can reproduce our results
+set.seed(2017)
+fileConnection <- gzcon(file("videoGames.json.gz", "rb"))
+InputData <- stream_in(fileConnection)
+ratingData = as(InputData[c("reviewerID", "itemID", "rating")], "realRatingMatrix")
+
+# determine thresholds for items and users
+# we want to focus on video games that have been rated more than two times
+# we want to keep users that have rated more than 2 video games
+Thres_Movie=2
+Thres_User=2
+
+# this correction ensures that the correct thresholds are applied to ratingData
+flag=0
+while(flag==0){
+  # as mentioned above, we will focus only on popular video games that have 
+  # been rated by more than two times
+  ratingData = ratingData[,colCounts(ratingData) >Thres_Movie]
+  # we keep users that have rated more than two video games
+  ratingData = ratingData[rowCounts(ratingData) > Thres_User,]
+  if(min(colCounts(ratingData))>Thres_Movie){
+    if(min(rowCounts(ratingData))>Thres_User){
+      flag=1
+    }
+  }
+}
+
+# we are left with this many users and items
+ratingData
+```
+
+> The data contains 4,984 ratings of approximately 567 video games made by 1,265 users.
+
+> I'd like to take a moment to note that the original starter script recommended we only include users who have made >2 reviews and video games that have received >3 reviews.
+
+> When running the original starter script, the data contained 6,540 ratings of approximately 632 video games made by 2,656 users.
+
+> The updated starter script in HW_Template2.rmd changed this to only include users who have made >2 reviews and video games that have received >2 reviews.
+
+> The new starter script reflects 1,556 fewer ratings than the original starter script.
+
+# 1. Our first task is to "Find the user that has rated the most amount of video games."
+
+```{r find top user,}
+# let's take a look at the count of ratings at the user level
+table(rowCounts(ratingData))
+
+# this indicates that the person who has rated the most video games rated 52 video games
+# let's identify this person
+top.user <- as(ratingData[rowCounts(ratingData) == 52,],"list")
+top.user
+```
+
+> User U584295664 is the user who rated the greatest amount of video games, having rated 52 video games.
+
+
+# 2. Our second task is to determine "Which video games has been rated [sic] by the most amount of users?" We will determine which video games have been rated by the greatest amount of users.
+
+```{r find top video game,}
+# let's take a look at the count of ratings at the video game (or "item") level
+table(colCounts(ratingData))
+mean(colCounts(ratingData))
+median(colCounts(ratingData))
+
+# looks like the video games with the highest volume of ratings have
+# ratings counts far beyond the mean and median counts
+
+# let's show the top 10 video games
+
+# let's say we're interested in the ten video games that have the highest count 
+# (which is to say, have been rated the most, not the highest average rating)
+# the threshold for being one of the top video games is 45 ratings
+top.10.games <- ratingData[,colCounts(ratingData) >= 45]
+print(top.10.games)
+
+# here are the top ten video games (as defined by having been rated by the greatest amount of users)
+colnames(as(top.10.games,"matrix"))
+
+# let's create an easier way to take a look at this
+# store video game numbers and count of ratings as objects
+top.10.names <- colnames(as(top.10.games,"matrix"))
+counts <- c(
+  sum(!is.na(as(top.10.games[,1],"matrix"))),
+  sum(!is.na(as(top.10.games[,2],"matrix"))),
+  sum(!is.na(as(top.10.games[,3],"matrix"))),
+  sum(!is.na(as(top.10.games[,4],"matrix"))),
+  sum(!is.na(as(top.10.games[,5],"matrix"))),
+  sum(!is.na(as(top.10.games[,6],"matrix"))),
+  sum(!is.na(as(top.10.games[,7],"matrix"))),
+  sum(!is.na(as(top.10.games[,8],"matrix"))),
+  sum(!is.na(as(top.10.games[,9],"matrix"))),
+  sum(!is.na(as(top.10.games[,10],"matrix")))
+  )
+
+# reate a dataframe of video games and their respective ratings counts
+table.top.games <- as.data.frame(cbind(top.10.names,counts))
+
+# make "counts" numeric so we can sort on it
+table.top.games$counts <- as.numeric(levels(table.top.games$counts))[table.top.games$counts]
+
+# sort descending by counts
+table.top.games.sorted <- table.top.games[order(-counts),]
+print(table.top.games.sorted)
+```
+
+> Now we can see that the top video game, I760611623, was rated 153 times.
+
+> Before we move forward, let's look at histograms of the ratings.
+
+> This should allow us to determine if there is anything unusual in the data.
+
+```{r ratings histograms,}
+# before we get started, let's take a look at the data. 
+# So far the data is strongly suggested to be on a 1-5 scale
+# store ratings as an object
+video.game_ratings <- getRatings(ratingData)
+
+# create normalized ratings
+video.game_normalized_ratings <- getRatings(normalize(ratingData,method = "Z-score"))
+
+#  create histograms of ratings and standardized ratings
+par(mfrow=c(2,2))
+hist(video.game_ratings,nclass = 50)
+hist(video.game_ratings)
+
+par(mfrow=c(2,2))
+hist(video.game_normalized_ratings,nclass = 50)
+hist(video.game_normalized_ratings)
+
+# the above non-normalized histogram shows that there are comparatively few ratings above 5. 
+# This dataset seemed to be on a 1-5 scale, and yet the histogram reveals that there are ratings >5. 
+# My real-world experience suggests that these ratings could be erroneous.
+# Also in the real world, I would ask someone about this rating system.
+# It is entirely possible that this could be a rating system I am unfamiliar with, 
+# where in fact 6-10 ratings are possible.
+# These 6-10 ratings may contain information that a real-world client might feel is valuable.
+# Given the inability to confirm or not confirm that these 6-10 ratings are erroneous, 
+# we elect to keep them in the dataset.
+```
+
+# 3. Our third task is to "Find the user that is most similar to "U141954350."
+
+```{r Find user that is most similar to U141954350",}
+# let's partition U141954350's data as its own object
+# this will make the rest of the code a bit simpler
+currentuser <- "U141954350"
+currentuser <- ratingData[currentuser,]
+currentuser
+
+# let's also create an object that is the other users
+otherusers <- ratingData[!(rownames(ratingData) %in% c(currentuser)),]
+
+# since we want to make sure that we are using the best similarity measurement,
+# we should try pearson, cosine, and jaccard
+compare.pearson <- similarity(currentuser,otherusers,method='pearson',which='users')
+compare.cosine <- similarity(currentuser,otherusers,method='cosine',which='users')
+compare.jaccard <- similarity(currentuser,otherusers,method='jaccard',which='users')
+
+# here are the pearson results
+pearson.matrix <- as.matrix(compare.pearson)
+pearson.matrix <- t(pearson.matrix)
+pearson.matrix.sorted <- pearson.matrix[order(-pearson.matrix[,1]),]
+head(pearson.matrix.sorted)
+tail(pearson.matrix.sorted)
+pearson.matrix.sorted
+
+# the pearson results return NA values for all users
+
+# here are the cosine results
+cosine.matrix <- as.matrix(compare.cosine)
+cosine.matrix <- t(cosine.matrix)
+cosine.matrix.sorted <- cosine.matrix[order(-cosine.matrix[,1]),]
+head(cosine.matrix.sorted)
+tail(cosine.matrix.sorted)
+cosine.matrix.sorted
+
+# the cosine results indicate that 152 users are tied for being most similar to U141954350
+# that is to say, their results were 1
+
+# here are the jaccard results
+jaccard.matrix <- as.matrix(compare.jaccard)
+jaccard.matrix <- t(jaccard.matrix)
+jaccard.matrix.sorted <- jaccard.matrix[order(-jaccard.matrix[,1]),]
+head(jaccard.matrix.sorted)
+tail(jaccard.matrix.sorted)
+jaccard.matrix.sorted
+
+# the jaccard results show that 161 users are tied for being most similar to U141954350
+# their results were 1
+```
+
+
+> As Chaoxing Dai mentioned on Piazza, the video game data is too sparse.
+
+> This means that the data has too few observations to derive meaningful similarities.
+
+> This is evidenced in the pearson output returning NA values for all users.
+
+> Additionally, the majority of users via cosine and jaccard also returned NA values.
+
+> While cosine and jaccard similarity identified 150+ users who match U141954350, we agree with Chaoxing that the data's sparsity has limited the ability to meet our goal of identifying the most similar user.
+
+# 4. Our fourth task is to "Recommend a video game to the user U141954350."
+
+```{r Evaluating binary top-N recommendations,}
+# The goal is to make a list of N recommendations that are most likely to interest a user.
+# Let's binarize ratingData and then do train/test.
+# We'll call any rating that is 4 or above a positive rating.
+video.game_bn <- binarize(ratingData, minRating = 4) # binary version, good if rating >= 4
+video.game_bn <- video.game_bn[rowCounts(video.game_bn) > 2] #have to have rated more than 2 video games
+dim(video.game_bn)
+
+# list of algorithms and associated parameters to evaluate
+# nn specifies 10 as the number of nearest neighbors to use
+# we decided to define 10 as nn because the dataset has relatively few observations
+# the sparsity of the dataset suggested that 10 would be a rational selection
+algorithms <- list(
+  "Random" = list(name = "RANDOM", param = NULL), # just recommend randomly
+  "Popular" = list(name = "POPULAR", param = NULL), # most popular
+  "UserBasedCF_COS"=list(name="UBCF",param=list(method="Cosine", nn = 10)), # user-based collective filtering - cosine
+  "UserBasedCF_JAC"=list(name="UBCF",param=list(method="Jaccard", nn = 10)) # user-based collective filtering - jaccard
+)
+
+# train/test split 80% train
+# k is number of runs to evaluate on
+# the number of ratings we will take as given from our test users is the ``given'' parameter
+# recall we selected users that had made at least 2 ratings
+
+# We will do a straight 80-20 split for our training and
+# test set, consider 2 ratings from our test users as known ratings, 
+# and evaluate over a single run
+video.game_split_scheme <- evaluationScheme(video.game_bn, 
+                                        method = "split", 
+                                        train = 0.8, 
+                                        given = 2, 
+                                        k = 1) 
+
+# specify the range of N values to use when making top-N recommendations
+# via the n parameter. We will do this for values 1 through 20:
+video.game_split_eval <- evaluate(video.game_split_scheme, algorithms, n = 1 : 20)
+
+options(digits = 4) # number of digits to use when printing a number
+
+# get results for algorithm 4 which was UserBased Jaccard
+getConfusionMatrix(video.game_split_eval[[4]])
+
+# ROC curve, plots all 4 methods
+par(mfrow=c(1,1))
+plot(video.game_split_eval, annotate = 2, legend = "topright")
+title(main = "TPR vs FPR For Binary Video Game Data")
+
+# this suggests that the UserBased Cosine and UserBased Jaccard models are the best, and track each other almost exactly
+
+# let's take another look at this, this time selecting k = 10
+video.game_split_scheme.k10.bn <- evaluationScheme(video.game_bn, 
+                                        method = "split", 
+                                        train = 0.8, 
+                                        given = 2, 
+                                        k = 10) 
+
+# specify the range of N values to use when making top-N recommendations
+# via the n parameter. We will do this for values 1 through 20:
+video.game_split_eval.k10.bn <- evaluate(video.game_split_scheme.k10.bn, algorithms, n = 1 : 20)
+
+options(digits = 4) # number of digits to use when printing a number
+
+# get results for algorithm 4 which was UserBased cosine
+getConfusionMatrix(video.game_split_eval.k10.bn[[3]])
+
+# get results for algorithm 4 which was UserBased Jaccard
+getConfusionMatrix(video.game_split_eval.k10.bn[[4]])
+
+# ROC curve, plots all 4 methods
+par(mfrow=c(1,1))
+plot(video.game_split_eval.k10.bn, annotate = 2, legend = "topright")
+title(main = "TPR vs FPR For Binary Video Game Data")
+
+# the same algorithms won out - UserBased Cosine and UserBased Jaccard
+# TPR for cosine was ~50s
+# TPR for jaccard was ~50s
+```
+
+> Now let's take a look at the quality of the non-binary top-N recommendation methods
+
+```{r non-binarized,}
+# Evaluating non-binary top-N recommendations
+# do cross-validation to evaluate 5 methods on movie data
+
+# algorithms to try,  SVD is just a data compression scheme
+normalized_algorithms <- list(
+  "Random" = list(name = "RANDOM", param = list(normalize = "Z-score")),
+  "Popular" = list(name = "POPULAR", param = list(normalize = "Z-score")),
+  "UserBasedCF" = list(name = "UBCF", param = list(normalize = "Z-score", method = "Cosine", nn = 10)),
+  "ItemBasedCF" = list(name = "IBCF", param = list(normalize = "Z-score")),
+  "SVD" = list(name = "SVD", param = list(categories = 30, normalize = "Z-score", treat_na = "median"))
+)
+
+# let's set up the cross validation scheme
+
+# goodRating:
+# threshold at which ratings are considered good for evaluation.
+# E.g., with goodRating = 4 all items with actual user rating of greater or equal 4 are considered positives
+# in the evaluation process.
+
+video.games_cross_scheme <- evaluationScheme(ratingData,
+                                        method = "cross-validation",
+                                        k = 10,   # ten folds
+                                        given = 2,
+                                        goodRating = 4)
+
+
+# will continue to investigate making top-N recommendations in the range of 1 to 20
+if(file.exists("video.games_cross_eval.RData")) {
+  cat("video.games_cross_eval.RData exists\n")
+  load("video.games_cross_eval.RData")
+} else {
+  cat("video.games_cross_eval.RData does not exist\n")
+  video.games_cross_eval <- evaluate(video.games_cross_scheme, normalized_algorithms, n = 1 : 20)
+  save(video.games_cross_eval, file="video.games_cross_eval.RData")
+}
+
+plot(video.games_cross_eval, annotate = 4, legend = "topright")
+title(main = "TPR versus FPR For Video Game Data")
+
+# this suggests that Popular is the best choice
+
+getConfusionMatrix(video.games_cross_eval[[2]])
+
+# however, the true positive rate is much lower than the binary UB cosine and jaccard true positive rates
+# TPR for non-binarized popular is ~0.18
+
+```
+
+> Although we believe the binarized method has better true positive rates, let's see what the results would be if we predict using the non-binarized methods.
+
+```{r predict games non-binarized,}
+# Evaluating individual predictions
+# just do train/test to evaluate ubcf and ibcf on ratingData
+
+# Another way to evaluate a recommendation system is to ask it to predict the
+# specific values of a portion of the known ratings made by a set of test users, using
+# the remainder of their ratings as given.
+
+# train/test split (train and test are on a user basis)
+# use ratings to match (to compute distances), check how often you get "goodRating" right
+if(file.exists("video.game_split_scheme.RData")) {
+  load("video.game_split_scheme.RData")
+} else {
+  video.game_split_scheme <- evaluationScheme(ratingData, 
+                                          method ="split", 
+                                          train = 0.8, 
+                                          given = 2, 
+                                          goodRating = 4)
+  save(video.game_split_scheme,file="video.game_split_scheme.RData")
+}
+
+# fit ubcf and ibcf models on training data
+# we will define individual user- and item-based collaborative filtering
+# recommenders using the Recommender() and getData() functions. The logic
+# behind these is that the getData() function will extract the ratings set aside for
+# training by the evaluation scheme and the Recommender() function will use these
+# data to train a model
+
+video.game_ubcf_srec <- Recommender(getData(video.game_split_scheme, "train"), "UBCF")
+video.game_ibcf_srec <- Recommender(getData(video.game_split_scheme, "train"), "IBCF")
+video.game_popular_srec <- Recommender(getData(video.game_split_scheme, "train"), "Popular")
+
+# let's get predictions
+# known is known items in test, see "given", we use the 2 given to match.
+if(file.exists("video.game_ubcf_known.RData")) {
+  load("video.game_ubcf_known.RData")
+} else {
+  video.game_ubcf_known <- predict(video.game_ubcf_srec, 
+                                   getData(video.game_split_scheme, "known"), 
+                                   type="ratings")
+  save(video.game_ubcf_known, file="video.game_ubcf_known.RData")
+}
+
+video.game_ibcf_known <- predict(video.game_ibcf_srec, 
+                                 getData(video.game_split_scheme, "known"), 
+                                 type="ratings")
+video.game_popular_known <- predict(video.game_popular_srec, 
+                                    getData(video.game_split_scheme, "known"), type="ratings")
+
+# measure performance
+# unknown is unknown items in test, how well did we predict on present ratings in test, 
+# not used to match.
+(video.game_ubcf_acc <- calcPredictionAccuracy(video.game_ubcf_known, getData(video.game_split_scheme, 
+                                                                              "unknown")))
+
+(video.game_ibcf_acc <- calcPredictionAccuracy(video.game_ibcf_known, getData(video.game_split_scheme, 
+                                                                              "unknown")))
+
+(video.game_popular_acc <- calcPredictionAccuracy(video.game_popular_known, getData(video.game_split_scheme, 
+                                                                                    "unknown")))
+
+# recommend five games to user whoever by using the UBCF, which had the best performance
+currentuser <- "U141954350"
+predict.five <- predict(video.game_ubcf_srec, ratingData[currentuser,], type="topNList", n=5)
+as(predict.five,"list")
+
+# the top five recommended video games for U141954350 using the non-binary method
+# are "I284106939" "I760611623" "I000034290" "I004580124" "I006362038"
+
+# if we just wanted to predict one:
+predict.one <- predict(video.game_ubcf_srec, ratingData[currentuser,], type="topNList", n=1)
+as(predict.one,"list")
+
+# the top recommended video game for U141954350 using the non-binary method 
+# is "I284106939"
+
+# see if the user has rated that before
+as(ratingData[currentuser,],"list")
+
+# they haven't rated any of these video games before
+
+```
+
+> However, as you recall, the binary method had a better true positive rate per the ROC curve.
+
+> Given this, we'd recommend using this method to identify video games to recommend.
+
+```{r predict binary,}
+# let's take another look at this, this time selecting k = 10
+video.game_split_scheme.k10.bn <- evaluationScheme(video.game_bn, 
+                                        method = "split", 
+                                        train = 0.8, 
+                                        given = 2, 
+                                        k = 10) 
+
+# specify the range of N values to use when making top-N recommendations
+# via the n parameter. We will do this for values 1 through 20:
+video.game_split_eval.k10.bn <- evaluate(video.game_split_scheme.k10.bn, algorithms, n = 1 : 20)
+
+video.game_ubcf_srec.k10.bn <- Recommender(getData(video.game_split_scheme.k10.bn, "train"), "UBCF")
+video.game_ubcf_srec.k10.bn
+
+# recommend five games to user whoever by using the UBCF, which had the best performance
+currentuser <- "U141954350"
+predict.five <- predict(video.game_ubcf_srec.k10.bn, ratingData[currentuser,], type="topNList", n=5)
+as(predict.five,"list")
+
+# the top five video games for U141954350 are 
+# "I760611623" "I840620023" "I936489406" "I845782212" "I898210434"
+
+# if we just wanted to predict one:
+predict.one <- predict(video.game_ubcf_srec.k10.bn, ratingData[currentuser,], type="topNList", n=1)
+as(predict.one,"list")
+
+# the top video game for U141954350 is "I760611623"
+
+# let's see if this user has already rated this game
+
+as(ratingData[currentuser,],"list")
+
+# good news - the user has not rated any of the top five predicted video games
+
+# if you recall, the binary method performed better than the non-binary method
+# one additional vote of confidence in the single game recommendation of I760611623 is that
+# I760611623 is also one of the top five  predicted games using the non-binary method
+# seeing that agreement is unnecessary but a pleasant affirmation
+```
+
+>If we were to recommend five video games to U141954350, we'd recommend:
+     + I760611623
+     + I840620023
+     + I936489406
+     + I845782212
+     + I898210434
+     
+>If we were to recommend only one video game to U141954350, we'd recommend:
+     + I760611623
