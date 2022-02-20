@@ -1,0 +1,460 @@
+Integrated Postsecondary Education Data System (IPEDS) Nation-wide Degree Completion - Data Engineering and Cleaning
+
+```{r}
+library(bit64)
+library(data.table)
+library(ggplot2)
+library(broom)
+library(knitr)
+library(Hmisc)
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+Read in the data.
+
+```{r,}
+# Data_2017_2018 <- read.xlsx("C:/Users/blallen22/Documents/C2018_A.xlsx", colNames = TRUE)
+
+Data_2017_2018 <- read.csv("C:/Users/blallen22/Documents/C2018_A.csv", header = TRUE)
+DEP_2017_2018  <- read.csv("C:/Users/blallen22/Documents/C2018DEP.csv", header = TRUE)
+HD_2017_2018   <- read.csv("C:/Users/blallen22/Documents/HD2018.csv", header = TRUE)
+
+Data_2016_2017 <- read.csv("C:/Users/blallen22/Documents/C2017_A.csv", header = TRUE)
+DEP_2016_2017  <- read.csv("C:/Users/blallen22/Documents/C2017DEP.csv", header = TRUE)
+HD_2016_2017   <- read.csv("C:/Users/blallen22/Documents/HD2017.csv", header = TRUE)
+
+Data_2015_2016 <- read.csv("C:/Users/blallen22/Documents/C2016_A.csv", header = TRUE)
+DEP_2015_2016  <- read.csv("C:/Users/blallen22/Documents/C2016DEP.csv", header = TRUE)
+HD_2015_2016   <- read.csv("C:/Users/blallen22/Documents/HD2016.csv", header = TRUE)
+
+Data_2014_2015 <- read.csv("C:/Users/blallen22/Documents/C2015_A.csv", header = TRUE)
+DEP_2014_2015  <- read.csv("C:/Users/blallen22/Documents/C2015DEP.csv", header = TRUE)
+HD_2014_2015   <- read.csv("C:/Users/blallen22/Documents/HD2015.csv", header = TRUE)
+
+Data_2013_2014 <- read.csv("C:/Users/blallen22/Documents/C2014_A.csv", header = TRUE)
+DEP_2013_2014  <- read.csv("C:/Users/blallen22/Documents/C2014DEP.csv", header = TRUE)
+HD_2013_2014   <- read.csv("C:/Users/blallen22/Documents/HD2014.csv", header = TRUE)
+
+Data_2012_2013 <- read.csv("C:/Users/blallen22/Documents/C2013_A.csv", header = TRUE)
+DEP_2012_2013  <- read.csv("C:/Users/blallen22/Documents/C2013DEP.csv", header = TRUE)
+HD_2012_2013   <- read.csv("C:/Users/blallen22/Documents/HD2013.csv", header = TRUE)
+
+Data_2011_2012 <- read.csv("C:/Users/blallen22/Documents/C2012_A.csv", header = TRUE)
+DEP_2011_2012  <- read.csv("C:/Users/blallen22/Documents/C2012DEP.csv", header = TRUE)
+HD_2011_2012   <- read.csv("C:/Users/blallen22/Documents/HD2012.csv", header = TRUE)
+
+Data_2010_2011 <- read.csv("C:/Users/blallen22/Documents/C2011_A.csv", header = TRUE)
+# DEP_2010_2011  <- read.csv("C:/Users/blallen22/Documents/C2011DEP.csv", header = TRUE)
+HD_2010_2011   <- read.csv("C:/Users/blallen22/Documents/HD2011.csv", header = TRUE)
+
+Data_2009_2010 <- read.csv("C:/Users/blallen22/Documents/C2010_A.csv", header = TRUE)
+# DEP_2009_2010  <- read.csv("C:/Users/blallen22/Documents/C2010DEP.csv", header = TRUE)
+HD_2009_2010   <- read.csv("C:/Users/blallen22/Documents/HD2010.csv", header = TRUE)
+
+Data_2008_2009 <- read.csv("C:/Users/blallen22/Documents/C2009_A.csv", header = TRUE)
+# DEP_2008_2009  <- read.csv("C:/Users/blallen22/Documents/C2009DEP.csv", header = TRUE)
+HD_2008_2009   <- read.csv("C:/Users/blallen22/Documents/HD2009.csv", header = TRUE)
+
+CIPCODES <- read.csv("C:/Users/blallen22/Documents/CIPCODES.csv", header = TRUE)
+# CIPCODES <- unique(CIPCODES, by = "CIPCODE")
+# CIPCODESS <- unique(CIPCODES)
+CIPCODES <- as.data.table(CIPCODES)
+setnames(CIPCODES, "Codevalue", "CIPCODE")
+```
+
+```{r,}
+# DDATA variables of interest include:
+# UNITID as key for join
+# CIPCODE as key for join
+# CTOTALT as Grand Total
+# AWLEVEL as Award Level code: Keep only AWLEVEL = 7 for Master's degrees
+# MAJORNUM as first or second major
+
+# DEP variables of interest include:
+# UNITID as key for join
+# CIPCODE as key for join
+######## WILL NEED TO KEY ALONG UNITID AND CIPCODE FOR PULLING IN DEGREE NAMES AND ONLINE INDICATOR
+# PMASTRDE as the alleged remote instruction indicator
+
+# HD variables of interest include:
+# UNITID as key for join
+# INSTNM as institution name
+# CITY as city
+# STABBR as state
+# ZIP as zip code
+# OBEREG as Bureau of Economic Analysis (BEA) region
+# CARNEGIE as Carnegie Classification 2000
+# CBSA as metro area
+```
+
+Convert dataframes to data.tables. Create a year variable. Merge. Rename variables.
+
+```{r,}
+# convert to data.tables
+Data_2017_2018 <- as.data.table(Data_2017_2018)
+DEP_2017_2018  <- as.data.table(DEP_2017_2018)
+HD_2017_2018   <- as.data.table(HD_2017_2018)
+
+# add year variable
+Data_2017_2018[, data_year := "2017_2018"]
+
+# merge data from HD
+Data_2017_2018_Inst <- merge(Data_2017_2018, HD_2017_2018[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# Data_2017_2018_InstTESTALLX <- merge(Data_2017_2018, HD_2017_2018[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+# 
+# Data_2017_2018_InstTESTALLXY <- merge(Data_2017_2018, HD_2017_2018[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all = TRUE)
+
+# merge data from DEP
+Data_2017_2018_HD_DEP <- merge(Data_2017_2018_Inst, DEP_2017_2018[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# Data_2017_2018_HD_DEPALLX <- merge(Data_2017_2018_Inst, DEP_2017_2018[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+# 
+# Data_2017_2018_HD_DEPALLXY <- merge(Data_2017_2018_Inst, DEP_2017_2018[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all = TRUE)
+
+# merge data from CIPCODES
+Data_2017_2018_HD_DEP_CIP <- merge(Data_2017_2018_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# Data_2017_2018_HD_DEP_CIPTEST <- merge(Data_2017_2018_HD_DEPALLX, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+# 
+# Data_2017_2018_HD_DEP_CIPTESTALLX <- merge(Data_2017_2018_HD_DEPALLX, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2017_2018 <- Data_2017_2018_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2017_2018 <- Final_2017_2018[AWLEVEL == 7]
+
+setnames(Final_2017_2018, "valueLabel", "CIPCODE Program")
+setnames(Final_2017_2018, "PMASTRDE", "Distance Education Program")
+setnames(Final_2017_2018, "INSTNM", "Institution")
+setnames(Final_2017_2018, "CTOTALT", "Conferred")
+
+
+
+
+
+
+# convert to data.tables
+Data_2016_2017 <- as.data.table(Data_2016_2017)
+DEP_2016_2017  <- as.data.table(DEP_2016_2017)
+HD_2016_2017   <- as.data.table(HD_2016_2017)
+
+# add year variable
+Data_2016_2017[, data_year := "2016_2017"]
+
+# merge data from HD
+Data_2016_2017_Inst <- merge(Data_2016_2017, HD_2016_2017[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2016_2017_HD_DEP <- merge(Data_2016_2017_Inst, DEP_2016_2017[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2016_2017_HD_DEP_CIP <- merge(Data_2016_2017_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2016_2017 <- Data_2016_2017_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2016_2017 <- Final_2016_2017[AWLEVEL == 7]
+
+setnames(Final_2016_2017, "valueLabel", "CIPCODE Program")
+setnames(Final_2016_2017, "PMASTRDE", "Distance Education Program")
+setnames(Final_2016_2017, "INSTNM", "Institution")
+setnames(Final_2016_2017, "CTOTALT", "Conferred")
+
+
+
+
+# convert to data.tables
+Data_2015_2016 <- as.data.table(Data_2015_2016)
+DEP_2015_2016  <- as.data.table(DEP_2015_2016)
+HD_2015_2016   <- as.data.table(HD_2015_2016)
+
+# add year variable
+Data_2015_2016[, data_year := "2015_2016"]
+
+# merge data from HD
+Data_2015_2016_Inst <- merge(Data_2015_2016, HD_2015_2016[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2015_2016_HD_DEP <- merge(Data_2015_2016_Inst, DEP_2015_2016[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2015_2016_HD_DEP_CIP <- merge(Data_2015_2016_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2015_2016 <- Data_2015_2016_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2015_2016 <- Final_2015_2016[AWLEVEL == 7]
+
+setnames(Final_2015_2016, "valueLabel", "CIPCODE Program")
+setnames(Final_2015_2016, "PMASTRDE", "Distance Education Program")
+setnames(Final_2015_2016, "INSTNM", "Institution")
+setnames(Final_2015_2016, "CTOTALT", "Conferred")
+
+
+
+
+
+# convert to data.tables
+Data_2014_2015 <- as.data.table(Data_2014_2015)
+DEP_2014_2015  <- as.data.table(DEP_2014_2015)
+HD_2014_2015   <- as.data.table(HD_2014_2015)
+
+# add year variable
+Data_2014_2015[, data_year := "2014_2015"]
+
+# merge data from HD
+Data_2014_2015_Inst <- merge(Data_2014_2015, HD_2014_2015[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2014_2015_HD_DEP <- merge(Data_2014_2015_Inst, DEP_2014_2015[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2014_2015_HD_DEP_CIP <- merge(Data_2014_2015_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2014_2015 <- Data_2014_2015_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2014_2015 <- Final_2014_2015[AWLEVEL == 7]
+
+setnames(Final_2014_2015, "valueLabel", "CIPCODE Program")
+setnames(Final_2014_2015, "PMASTRDE", "Distance Education Program")
+setnames(Final_2014_2015, "INSTNM", "Institution")
+setnames(Final_2014_2015, "CTOTALT", "Conferred")
+
+
+
+
+
+# convert to data.tables
+Data_2013_2014 <- as.data.table(Data_2013_2014)
+DEP_2013_2014  <- as.data.table(DEP_2013_2014)
+HD_2013_2014   <- as.data.table(HD_2013_2014)
+
+# add year variable
+Data_2013_2014[, data_year := "2013_2014"]
+
+# merge data from HD
+Data_2013_2014_Inst <- merge(Data_2013_2014, HD_2013_2014[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2013_2014_HD_DEP <- merge(Data_2013_2014_Inst, DEP_2013_2014[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2013_2014_HD_DEP_CIP <- merge(Data_2013_2014_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2013_2014 <- Data_2013_2014_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2013_2014 <- Final_2013_2014[AWLEVEL == 7]
+
+setnames(Final_2013_2014, "valueLabel", "CIPCODE Program")
+setnames(Final_2013_2014, "PMASTRDE", "Distance Education Program")
+setnames(Final_2013_2014, "INSTNM", "Institution")
+setnames(Final_2013_2014, "CTOTALT", "Conferred")
+
+
+
+
+# convert to data.tables
+Data_2012_2013 <- as.data.table(Data_2012_2013)
+DEP_2012_2013  <- as.data.table(DEP_2012_2013)
+HD_2012_2013   <- as.data.table(HD_2012_2013)
+
+# add year variable
+Data_2012_2013[, data_year := "2012_2013"]
+
+# merge data from HD
+Data_2012_2013_Inst <- merge(Data_2012_2013, HD_2012_2013[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2012_2013_HD_DEP <- merge(Data_2012_2013_Inst, DEP_2012_2013[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2012_2013_HD_DEP_CIP <- merge(Data_2012_2013_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2012_2013 <- Data_2012_2013_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2012_2013 <- Final_2012_2013[AWLEVEL == 7]
+
+setnames(Final_2012_2013, "valueLabel", "CIPCODE Program")
+setnames(Final_2012_2013, "PMASTRDE", "Distance Education Program")
+setnames(Final_2012_2013, "INSTNM", "Institution")
+setnames(Final_2012_2013, "CTOTALT", "Conferred")
+
+
+
+
+# convert to data.tables
+Data_2011_2012 <- as.data.table(Data_2011_2012)
+DEP_2011_2012  <- as.data.table(DEP_2011_2012)
+HD_2011_2012   <- as.data.table(HD_2011_2012)
+
+# add year variable
+Data_2011_2012[, data_year := "2011_2012"]
+
+# merge data from HD
+Data_2011_2012_Inst <- merge(Data_2011_2012, HD_2011_2012[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+Data_2011_2012_HD_DEP <- merge(Data_2011_2012_Inst, DEP_2011_2012[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"), all.x = TRUE)
+
+# merge data from CIPCODES
+Data_2011_2012_HD_DEP_CIP <- merge(Data_2011_2012_HD_DEP, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2011_2012 <- Data_2011_2012_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2011_2012 <- Final_2011_2012[AWLEVEL == 7]
+
+setnames(Final_2011_2012, "valueLabel", "CIPCODE Program")
+setnames(Final_2011_2012, "PMASTRDE", "Distance Education Program")
+setnames(Final_2011_2012, "INSTNM", "Institution")
+setnames(Final_2011_2012, "CTOTALT", "Conferred")
+
+
+
+
+# convert to data.tables
+Data_2010_2011 <- as.data.table(Data_2010_2011)
+# DEP_2010_2011  <- as.data.table(DEP_2010_2011)
+HD_2010_2011   <- as.data.table(HD_2010_2011)
+
+# add year variable
+Data_2010_2011[, data_year := "2010_2011"]
+
+# merge data from HD
+Data_2010_2011_Inst <- merge(Data_2010_2011, HD_2010_2011[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+# Data_2010_2011_HD_DEP <- merge(Data_2010_2011_Inst, DEP_2010_2011[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"))
+
+# merge data from CIPCODES
+Data_2010_2011_HD_CIP <- merge(Data_2010_2011_Inst, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2010_2011 <- Data_2010_2011_HD_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2010_2011 <- Final_2010_2011[AWLEVEL == 7]
+
+setnames(Final_2010_2011, "valueLabel", "CIPCODE Program")
+# setnames(Final_2010_2011, "PMASTRDE", "Distance Education Program")
+setnames(Final_2010_2011, "INSTNM", "Institution")
+setnames(Final_2010_2011, "CTOTALT", "Conferred")
+Final_2010_2011[, Distance_Learning_Program := ""]
+setnames(Final_2010_2011, "Distance_Learning_Program", "Distance Education Program")
+Final_2010_2011$`Distance Education Program` <- as.integer(Final_2010_2011$`Distance Education Program`) 
+Final_2010_2011 <- Final_2010_2011[, c(1:13, 15, 14)]
+
+
+
+
+# convert to data.tables
+Data_2009_2010 <- as.data.table(Data_2009_2010)
+# DEP_2009_2010  <- as.data.table(DEP_2009_2010)
+HD_2009_2010   <- as.data.table(HD_2009_2010)
+
+# add year variable
+Data_2009_2010[, data_year := "2009_2010"]
+
+# merge data from HD
+Data_2009_2010_Inst <- merge(Data_2009_2010, HD_2009_2010[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+# Data_2009_2010_HD_DEP <- merge(Data_2009_2010_Inst, DEP_2009_2010[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"))
+
+# merge data from CIPCODES
+Data_2009_2010_HD_DEP_CIP <- merge(Data_2009_2010_Inst, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2009_2010 <- Data_2009_2010_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2009_2010 <- Final_2009_2010[AWLEVEL == 7]
+
+setnames(Final_2009_2010, "valueLabel", "CIPCODE Program")
+# setnames(Final_2009_2010, "PMASTRDE", "Distance Education Program")
+setnames(Final_2009_2010, "INSTNM", "Institution")
+setnames(Final_2009_2010, "CTOTALT", "Conferred")
+Final_2009_2010[, Distance_Learning_Program := ""]
+setnames(Final_2009_2010, "Distance_Learning_Program", "Distance Education Program")
+Final_2009_2010$`Distance Education Program` <- as.integer(Final_2009_2010$`Distance Education Program`) 
+Final_2009_2010 <- Final_2009_2010[, c(1:13, 15, 14)]
+
+
+
+
+# convert to data.tables
+Data_2008_2009 <- as.data.table(Data_2008_2009)
+# DEP_2008_2009  <- as.data.table(DEP_2008_2009)
+HD_2008_2009   <- as.data.table(HD_2008_2009)
+
+# add year variable
+Data_2008_2009[, data_year := "2008_2009"]
+
+# merge data from HD
+Data_2008_2009_Inst <- merge(Data_2008_2009, HD_2008_2009[,.(UNITID, INSTNM, CITY, STABBR, ZIP, OBEREG, CARNEGIE, CBSA)], by = c("UNITID"), all.x = TRUE)
+
+# merge data from DEP
+# Data_2008_2009_HD_DEP <- merge(Data_2008_2009_Inst, DEP_2008_2009[,.(UNITID, CIPCODE, PMASTRDE)], by = c("UNITID", "CIPCODE"))
+
+# merge data from CIPCODES
+Data_2008_2009_HD_DEP_CIP <- merge(Data_2008_2009_Inst, CIPCODES[,.(CIPCODE, valueLabel)], by = c("CIPCODE"), all.x = TRUE)
+
+# removing variables. If we want them for later analysis we can always add them back.
+Final_2008_2009 <- Data_2008_2009_HD_DEP_CIP[, c("CTOTALM", "CTOTALW", "CAIANT", "CAIANM", "CAIANW", "CASIAT", "CASIAM", "CASIAW", "CBKAAT", "CBKAAM", "CBKAAW", "CHISPT", "CHISPM", "CHISPW", "CNHPIT", "CNHPIM", "CWHITT", "CWHITM", "CWHITW", "C2MORT", "C2MORM", "C2MORW", "CUNKNT", "CUNKNM", "CUNKNW", "CNRALT", "CNRALM", "CNRALW", "CDISTEDP", "CNHPIW") := NULL]
+
+# keep only master's degree programs
+Final_2008_2009 <- Final_2008_2009[AWLEVEL == 7]
+
+setnames(Final_2008_2009, "valueLabel", "CIPCODE Program")
+# setnames(Final_2008_2009, "PMASTRDE", "Distance Education Program")
+setnames(Final_2008_2009, "INSTNM", "Institution")
+setnames(Final_2008_2009, "CTOTALT", "Conferred")
+Final_2008_2009[, Distance_Learning_Program := ""]
+setnames(Final_2008_2009, "Distance_Learning_Program", "Distance Education Program")
+Final_2008_2009$`Distance Education Program` <- as.integer(Final_2008_2009$`Distance Education Program`) 
+Final_2008_2009 <- Final_2008_2009[, c(1:13, 15, 14)]
+```
+
+Time to union all of these tables together.
+
+```{r,}
+Combined_DT <- funion(Final_2017_2018, Final_2016_2017, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2015_2016, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2014_2015, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2013_2014, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2012_2013, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2011_2012, all = TRUE)
+Combined_DT <- funion(Combined_DT, Final_2010_2011, all = TRUE)
+
+# Don't use 2009_2010 and 2008_2009 - they use different data nomenclature
+# Combined_DT <- funion(Combined_DT, Final_2009_2010, all = TRUE)
+# Combined_DT <- funion(Combined_DT, Final_2008_2009, all = TRUE)
+```
+
+To avoid some Tableau trouble, turn the remote education variable into an indicator.
+
+```{r,}
+Combined_DT$`Distance Education Program` <- as.factor(Combined_DT$`Distance Education Program`)
+Combined_DT[`Distance Education Program` == 0, `Distance Education Program` :="No"]
+Combined_DT[`Distance Education Program` != "No", `Distance Education Program` :="Yes"]
+Combined_DT$`Distance Education Program` <- droplevels(Combined_DT$`Distance Education Program`)
+```
+
+Export the final dataset.
+
+```{r,}
+write.csv(Combined_DT, file.choose())
+```
