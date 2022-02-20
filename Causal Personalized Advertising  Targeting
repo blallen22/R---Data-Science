@@ -1,0 +1,1345 @@
+---
+title: "Incrementality and Optimal Personalized Targeting"
+author: "Brandon Allen"
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+urlcolor: blue
+graphics: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA, message = FALSE, eval = TRUE,
+                      fig.width = 6, fig.height = 4.5, fig.align = "right")
+```
+
+\setlength{\parskip}{6pt}
+\newpage
+
+## Summary
+Comparing the OLS, LASSO, and Causal Forest fully-personalized targeting policies against each other and against targeting everyone or no one demonstrates that OLS, LASSO, and Causal Forest are all viable models to implement personalized targeting. OLS, LASSO, and Causal Forest all yield higher profit than simply targeting all people in the database and targeting no one in the database. This document further shows that Causal Forest comparatively outperforms OLS and LASSO, and in doing so yields the highest comparative profit.
+
+In comparing the 2017 results to the 2018 results, we see that the models generally perform worse on the out-of-sample 2018 data. Indeed, each model yields lower profit on the 2018 data than the 2017 data. However, this could be due to a material difference in customers and their respective behavior. For example, it could be the case that customers are systematically spending less. Regardless, the models still out-perform targeting all people or targeting no one. Therefore, these models, particularly Causal Forest, still result in substantial increases in profit.
+
+For the optional bonus question, visualizing the CATE for the Elastic Net indicates that it is very similar to the LASSO and somewhat similar to the Causal Forest. In terms of profit, Elastic Net performs approximately as well as LASSO. Therefore, we can conclude that Elastic Net is not meaningfully better than LASSO and does not perform as well as Causal Forest, so Causal Forest is still the preferred model.
+
+Further, the traditional targeting output is pretty interesting, because it demonstrates that using the traditional targeting method yields optimal profit at a very different % of customers targeted compared to the other models. In particular, the optimal profit for the traditional method comes when you have targeted about half of the customers, which is fascinating given that this approach is only slightly better than flipping a coin. Further, the traditional method appears to yield a profit greater than the OLS. While LASSO, Elastic Net, and Causal Forest still perform better than the traditional method, one could understand why firms that lack the technical ability to implement a personalized targeting model use the traditional method as a default, since in isolation it seems (emphasis on "seems") to be relatively profitable.
+\newpage
+
+
+
+
+```{r}
+library(bit64)
+library(data.table)
+library(glmnet)
+library(ggplot2)
+library(knitr)
+library(Hmisc)
+library(grf)
+```
+
+\vskip 0.4in
+
+
+
+
+# Step 1: Estimation and prediction of conditional average treatment effects
+
+We use the 2017 data to estimate and validate several models to predict the incremental effects.
+
+```{r}
+data_folder = "/classes/37105_aut2020/Data/Assignment-7"
+
+load(paste0(data_folder, "/Customer-Development-2017.RData"))
+```
+
+Split the sample into a 50 percent training and 50 percent validation sample.
+
+```{r}
+set.seed(2001)
+crm_DT[, training_sample := rbinom(nrow(crm_DT), 1, 0.5)]
+```
+
+To make the code more readable, rename the `mailing_indicator` to make it clear that the randomized mailing is the treatment, $W_i$.
+
+```{r}
+setnames(crm_DT, "mailing_indicator", "W")
+```
+
+
+## Data pre-processing
+
+Remove highly correlated features from the data set.
+
+It can be valuable to visualize the highly correlated features.
+
+```{r,}
+cor_matrix = cor(crm_DT[, !c("customer_id", "W", "outcome_spend"),
+                        with = FALSE])
+```
+
+Create a data table that contains the correlations for all variable pairs:
+
+```{r}
+cor_matrix[upper.tri(cor_matrix, diag = TRUE)] = NA
+
+cor_DT = data.table(row = rep(rownames(cor_matrix), ncol(cor_matrix)),
+                    col = rep(colnames(cor_matrix), each = ncol(cor_matrix)),
+                    cor = as.vector(cor_matrix))
+cor_DT = cor_DT[is.na(cor) == FALSE]
+```
+
+We are going to use a threshold of 0.95 in absolute value as our criterion for high correlation. While statisticians differ in their views of what constitutes high correlation, this threshold is an appropriate heuristic selection.
+
+```{r}
+large_cor_DT = cor_DT[abs(cor) > 0.95]
+kable(large_cor_DT, digits = 4)
+```
+
+```{r}
+crm_DT = crm_DT[, !large_cor_DT$row, with = FALSE]
+```
+
+## Randomization checks
+
+Inspect the data to estimate the probability of a mailing,
+$$p = \Pr\{W_i=1\}.$$
+We use the notation $p_1 = p$ and $p_0 = 1-p$.
+
+Recall that $p$ is also called the *propensity score*.
+
+```{r,}
+table(crm_DT$W)
+# probability that someone was targeted
+(length(crm_DT$W[crm_DT$W==1])/length(crm_DT$W))
+```
+
+The probability of receiving a mailing (W = 1) is 0.668864, or approximately 67%.
+
+Perform a quick check to assess if the treatment (catalog mailing) was indeed randomized in the whole data base and hence does not depend on the customer attributes, $\boldsymbol{x}_i$.
+
+By interpreting the "customer attributes" as the demographic attributes for customers, I have selected customer_type_L, customer_type_C, online_customer, and customer_income to assess the randomization of the mailing_indicator (now W) variable. The below chi-squared tests and t.test indicate that the W variable has been sufficiently randomized throughout the dataset.
+
+```{r,}
+chisq.test(crm_DT$W, crm_DT$customer_type_L)
+
+chisq.test(crm_DT$W, crm_DT$customer_type_C)
+
+chisq.test(crm_DT$W, crm_DT$online_customer)
+
+t.test(crm_DT$customer_income ~ crm_DT$W)
+```
+
+While the customer_type_L chi-squared test had a p-value below 0.05, we are unable to determine that this difference is due to a systematic flaw in randomizing the W variable.
+
+## Estimation of incremental effect of targeting (CATE)
+
+We use the training sample to estimate the CATE (conditional average treatment effect) on dollar spending, $\tau_i$, due to catalog targeting. 
+
+Estimate **linear models with treatment-interactions**, i.e. the *"two-in-one" regression*:
+
+(a) OLS
+(b) LASSO
+
+We also use the recently developed non-parametric estimator that directly predicts the CATE for each customer:
+
+(c) Causal forest
+
+```{r,}
+load(paste0(data_folder, "/Predicted-Causal-Forest-CATE.RData"))
+```
+
+
+```{r}
+training_DT   = crm_DT[training_sample == 1,
+                       !c("customer_id", "training_sample"), with = FALSE]
+validation_DT = crm_DT[training_sample == 0,
+                       !c("customer_id", "training_sample"), with = FALSE]
+```
+
+```{r}
+set.seed(961)
+
+N_obs_training = nrow(training_DT)
+folds = sample(1:10, N_obs_training, replace = TRUE)
+```
+
+Before we begin using models, let's take a look at the completeness of our data:
+
+```{r,}
+# training data completeness
+table(complete.cases(training_DT))
+
+# validation data completeness
+table(complete.cases(validation_DT))
+```
+
+Both training and validation data.tables only have complete cases.
+
+## OLS
+
+Let's fit the OLS.
+
+```{r}
+fit_OLS = lm(outcome_spend ~ .*W,
+             data = training_DT)
+
+summary_OLS = summary(fit_OLS)
+results = data.table(input   = rownames(summary_OLS$coefficients),
+                     est_OLS = summary_OLS$coefficients[, 1],
+                     p_OLS   = summary_OLS$coefficients[, 4])
+```
+
+## LASSO
+
+Let's fit the LASSO.
+
+```{r}
+X = model.matrix(outcome_spend ~ 0 + .*W,
+                 data = training_DT)
+y = training_DT[, outcome_spend]
+
+fit_LASSO = cv.glmnet(x = X, y = y, alpha = 1.0,
+                      foldid = folds)
+
+results[, est_LASSO := coef(fit_LASSO, s = "lambda.min")[,1]]
+```
+
+## Elastic Net
+
+Let's fit the Elastic Net (to be used later).
+
+```{r, cache = TRUE, results = "hide"}
+# Output table
+alpha_seq = seq(0, 1, by = 0.05)
+L = length(alpha_seq)
+rmse_DT = data.table(alpha         = alpha_seq,
+                     mean_cv_error = rep(0, L))
+
+# Calculate cross-validation error for different alpha values
+for (i in 1:L) {
+   cv_i = cv.glmnet(x = X, y = y, alpha = rmse_DT[i, alpha],
+                    foldid = folds)
+   rmse_DT[i, mean_cv_error := min(cv_i$cvm)]
+   cat("Iteration", i, "cv_error:", min(cv_i$cvm), "\n")
+}
+
+# Optimal alpha:
+index_min = which.min(rmse_DT$mean_cv_error)
+opt_alpha = rmse_DT[index_min, alpha]
+```
+
+```{r}
+opt_alpha
+```
+
+Estimate using the optimal `alpha` value.
+
+```{r}
+fit_elnet = cv.glmnet(x = X, y = y, alpha = opt_alpha,
+                      foldid = folds)
+# results[, est_elnet := coef(fit_elnet, s = "lambda.min")[,1]]
+```
+
+
+## Causal Forest
+
+Let's fit the causal forest.
+
+```{r}
+fit_causal_forest = causal_forest(
+      X = as.matrix(training_DT[, !c("outcome_spend", "W")]),
+      Y = training_DT$outcome_spend,
+      W = training_DT$W,
+      num.trees = 50,
+      seed      = 961,
+      # tune.parameters = "all"
+   )
+```
+
+Let's take a look at the OLS and LASSO results.
+```{r}
+kable(results, digits = 4)
+```
+
+Number of selected coefficients:
+
+```{r}
+sum(abs(results$est_OLS) > 0)
+sum(abs(results$est_LASSO) > 0)
+```
+
+Because LASSO uses relatively fewer variables, we can determine that a meaningful amount of regularization is used.
+
+## Predict treatment effects
+
+```{r}
+predict_DT = crm_DT[training_sample == 0,
+                    c("customer_id", "outcome_spend", "W"), with = FALSE]
+```
+
+Add the model predictions to this table.
+
+```{r,}
+# OLS
+temp_DT = copy(validation_DT)
+
+predict_DT[, y_OLS_1 := predict(fit_OLS, newdata = temp_DT[, W := 1])]
+predict_DT[, y_OLS_0 := predict(fit_OLS, newdata = temp_DT[, W := 0])]
+
+
+# LASSO
+X_new_1 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_DT[, W := 1])
+X_new_0 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_DT[, W := 0])
+
+predict_DT[, y_LASSO_1 := predict(fit_LASSO, newx = X_new_1, s = "lambda.min")]
+predict_DT[, y_LASSO_0 := predict(fit_LASSO, newx = X_new_0, s = "lambda.min")]
+```
+
+Also, merge the causal forest predictions using the `customer_id` as key.
+
+Let's calculate the OLS and LASSO CATEs.
+
+```{r,}
+setkey(predict_DT, "customer_id")
+predict_DT = merge(predict_DT, predict_DT_2017, by = "customer_id")
+```
+
+```{r,}
+# OLS CATE
+predict_DT[, tau_OLS := y_OLS_1 - y_OLS_0]
+
+# LASSO CATE
+predict_DT[, tau_LASSO := y_LASSO_1 - y_LASSO_0]
+```
+
+# Step 2: Model fit and profit evaluation in 2017 validation sample
+
+## Descriptive analysis of predicted treatment effects
+
+## Summary:
+In comparing the OLS, LASSO, and Causal Forest CATEs against the overall ATE, we see that the respective distributions vary in some ways and are similar in others. The three CATEs seem to be centrally distributed around approximately the same value, but the relative density (meaning volume of records) at each model's central-most point appears to be visually different. T-tests conducted below on respective CATE distributions demonstrate that OLS is significantly different from LASSO and LASSO is significantly different from Causal Forest, but OLS is not significantly different from Causal Forest. The correlation coefficients for the respective models suggest that the model CATEs are moderately-to-strongly correlated with each other. 
+
+In comparing the spending against the CATEs we see similarly that the CATE distributions vary. One interesting point that becomes more clear in visualizing against spending is that using Causal Forest appears to yield comparatively more CATES above $0 across the various spending amounts, which might suggest that of those who make a purchase, Causal Forest might (but not certainly) yield more profit. This will be explored later. An important note that I found to be interesting is that plotting the CATEs against spending generally yields a funnel that tapers as spending increases. This phenomenon aligns with what we might expect, which is that people who spend more may have made a purchase anyway without being targeted, and since the CATEs don't increase as spending increases this further highlights that the bulk of the targeting value may reside with people who spend less. For example, there are very few people who spend a lot of money (heuristically I'm thinking of 1,000 dollars or more), and for those people the respective CATEs aren't meaningfully larger than people who spend much less. Indeed, people who spend 1,000 or more don't seem to have a CATE greater than 25 in any of these models, which illustrates one of the points from our lectures, which is that there are certainly people who will spend a lot of money anyway regardless of the extent to which they are targeted.
+
+```{r,}
+# Document the ATE
+mean_spend_0 = mean(predict_DT[W == 0, outcome_spend])
+mean_spend_1 = mean(predict_DT[W == 1, outcome_spend])
+ATE = mean_spend_1 - mean_spend_0
+
+cat(mean_spend_0, mean_spend_1, ATE)
+```
+
+```{r, warning=FALSE}
+# Summarize and graph the distribution of the tau from the different estimation methods
+# visualize OLS, LASSO, and Causal Forest on the same visualization
+# visualize ATE as red dotted line
+require(reshape)
+melt_predict <- predict_DT[,.(customer_id, W, tau_cforest, tau_OLS, tau_LASSO)]
+melted_predict <- melt(melt_predict, id=c("customer_id","W"))
+
+ggplot(melted_predict, aes(x = value, fill = variable)) + geom_density(alpha = .3) + xlim(-10,10) + geom_vline(xintercept = ATE, linetype="dashed", color = "red")
+```
+
+```{r,}
+# evaluate the correlation between predictions from the models
+pred_cor_matrix = cor(melt_predict[, !c("customer_id", "W"),
+                        with = FALSE])
+pred_cor_matrix
+```
+
+Let's run a few t.tests to compare tau distributions among models.
+
+OLS vs LASSO
+```{r,}
+t.test(predict_DT$tau_OLS, predict_DT$tau_LASSO)
+```
+
+OLS vs Causal Forest
+```{r,}
+t.test(predict_DT$tau_OLS, predict_DT$tau_cforest)
+```
+
+LASSO vs Causal Forest
+```{r,}
+t.test(predict_DT$tau_LASSO, predict_DT$tau_cforest)
+```
+
+Let's compare spending against OLS CATE.
+```{r, warning=FALSE}
+ggplot(predict_DT, aes(x=outcome_spend, y=tau_OLS)) + geom_point() + ylim(-200,200)
+```
+
+Let's compare spending against LASSO CATE.
+```{r, warning=FALSE}
+ggplot(predict_DT, aes(x=outcome_spend, y=tau_LASSO)) + geom_point() + ylim(-200,200)
+```
+
+Let's compare spending against Casual Forest CATE.
+```{r, warning=FALSE}
+ggplot(predict_DT, aes(x=outcome_spend, y=tau_cforest)) + geom_point() + ylim(-200,200)
+```
+
+
+## Model validation: Lifts
+
+## Create lift tables
+
+```{r}
+# lift table
+lift_table <- function(model_name, y, score, W, N_groups = 20) {
+   DT = data.table(y     = y,
+                   score = score,
+                   W     = W)
+   DT[, score_group := as.integer(cut_number(score, n = N_groups))]
+   
+   lift_DT = DT[, .(model      = model_name,
+                    score      = mean(score),
+                    y          = (mean(y[W==1]) - mean(y[W==0])),
+                    N          = .N,
+                    std_error  = sd(y)/sqrt(.N)),   # Standard error of mean
+                keyby = score_group]
+   
+   lift_DT[, `:=`(lower  = y + qt(0.025, df = N-1)*std_error,
+                  upper  = y + qt(0.975, df = N-1)*std_error)]
+   lift_DT[, c("std_error", "N") := NULL]
+   lift_DT[, lift := 100*y/mean(y)]
+   
+   return(lift_DT)
+}
+```
+
+```{r}
+# CATE lift tables
+N_groups = 20
+
+lifts = list(
+   lift_table("OLS",           predict_DT$outcome_spend, predict_DT$tau_OLS, predict_DT$W, N_groups),
+   lift_table("LASSO",         predict_DT$outcome_spend, predict_DT$tau_LASSO, predict_DT$W, N_groups),
+   lift_table("Causal Forest", predict_DT$outcome_spend, predict_DT$tau_cforest, predict_DT$W, N_groups)
+)
+
+lifts = rbindlist(lifts)
+lifts[, model := factor(model, levels = c("OLS", "LASSO", "Causal Forest"))]
+```
+
+```{r}
+lifts_print = dcast(lifts, score_group ~ model, value.var = "y")
+kable(lifts_print, digits = 2)
+```
+
+```{r, fig.width = 6, fig.height = 5.5}
+ggplot(lifts, aes(x = score_group, y = y)) +
+   geom_line(color = "gray70") +
+   geom_errorbar(aes(ymin = lower, ymax = upper), color = "deepskyblue2",
+                 size = 0.6, width = 0.1) +
+   geom_point(shape = 21, color = "gray30", fill = "hotpink", size = 2.5) +
+   scale_x_continuous("Score", limits = c(1, N_groups),
+                      breaks = seq(0, N_groups, 5), minor_breaks = 1:N_groups) +
+   scale_y_continuous("Mean spending", limits = c(0, 25),
+                      breaks = seq(0, 25, 5)) +
+   facet_wrap(~ model, ncol = 2) +
+   theme_bw()
+```
+
+
+
+
+## Profit predictions
+
+The intuition for the following exercise is that a traditional CRM approach would be considered relatively noisy, in that it would capture the profits of people who would have made a purchase anyway if they weren't targeted and it would incorrectly attribute that increased value to the targeting. This inflates the profit and doesn't reflect the true impact of the targeting policy. By determining the incremental effect of targeting, we are able to causally isolate the effect of the targeting policy and arrive at a true reflection of the profit attributable to the policy.
+
+The cost of targeting a customer is $0.99, and the profit margin is 32.5 percent.
+
+```{r}
+margin = 0.325          # 32.5 percent
+cost   = 0.99           # 99 cents
+```
+
+## Profits from targeting the top $n$ percent of customers
+
+We can also compare the profitability implications of different targeting policies as follows. Suppose we target the top $n$ percent of customers, based on predicted *incremental* profits. What is the total expected profit level from targeting these $n$ percent of customers?
+
+Predict the corresponding profit curve on a grid with values $n=0,0.01,0.02,\dots,1$. Compare the profit curves across the estimation methods.
+
+First, let's create the predictProfit function.
+
+```{r}
+predictProfit <- function(model_name, top_percent, score, W, spend,
+                                       treatment_Pr, margin, cost) {
+   
+   N = length(W)         # No. of observations
+   p = treatment_Pr      # Targeting (treatment) probability
+   
+   # Profits for treated and untreated units
+   profit_0 = margin*spend
+   profit_1 = margin*spend - cost
+   
+   # Output table
+   K = length(top_percent)
+   profits_perc_DT = data.table(model       = rep(model_name, K),
+                                top_percent = top_percent,
+                                profit      = rep(0, K))
+   
+   scale_factor = 1000/N
+   
+   for (k in 1:K) {
+      if (top_percent[k] < 1e-12) {              # More robust than ... == 0
+         T = rep(0, N)                           # Target nobody
+      } else if (top_percent[k] > 1 - 1e-12) {   # More robust than ... == 1
+         T = rep(1, N)                           # Target everybody
+      } else {
+         threshold = quantile(score, probs = 1 - top_percent[k])
+         T = score >= threshold
+      }
+      
+      profit_component_i = ((1 - W)/(1 - p))*(1 - T)*profit_0 + (W/p)*T*profit_1
+      
+      profits_perc_DT[k, profit := scale_factor*sum(profit_component_i)]
+   }
+   
+   return(profits_perc_DT)
+}
+```
+
+Initialize top_percent.
+
+```{r,}
+top_percent = seq(from = 0, to = 1, by = 0.01)
+```
+
+Initialize treatment_Pr.
+
+```{r,}
+treatment_Pr = 2/3
+p = treatment_Pr
+```
+
+Apply the predictProfit function to our models.
+
+```{r}
+profit_validate_OLS  = predictProfit(
+   "OLS", top_percent,
+   predict_DT[, tau_OLS],
+   predict_DT[, W],
+   predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_LASSO  = predictProfit(
+   "LASSO", top_percent,
+   predict_DT[, tau_LASSO],
+   predict_DT[, W],
+   predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_cforest  = predictProfit(
+   "Causal Forest", top_percent,
+   predict_DT[, tau_cforest],
+   predict_DT[, W],
+   predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_pred_DT = rbindlist(list(profit_validate_OLS, profit_validate_LASSO, profit_validate_cforest))
+```
+
+```{r, fig.width = 5, fig.height = 7, warning=FALSE}
+ggplot(profit_pred_DT, aes(x = top_percent, y = profit)) +
+   geom_hline(data = profit_pred_DT[top_percent == 0, .(model, profit_0 = profit)],
+              aes(yintercept = profit_0), color = "slategray3", size = 1) + 
+   geom_line(color = "mediumvioletred", size = 1) +
+   scale_x_continuous("Percent targeted", limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+   scale_y_continuous("Profit", limits = c(1500, 2500),
+                      breaks = seq(1500, 2500, 50)) +
+   theme_bw() +
+   facet_wrap(~ model, nrow = 2)
+```
+
+The above lift tables suggest that LASSO performs better than OLS and Causal Forest performs better than LASSO. While the lift tables are not as smooth as those from the lecture, they reasonably visualize the respective lifts.
+
+Optimal targeting percentage, $n^*$%:
+
+```{r}
+opt_n_index = which.max(profit_validate_OLS$profit)  # Index (row number) of max. profit
+OLS_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+OLS_opt_n
+
+opt_n_index = which.max(profit_validate_LASSO$profit)  # Index (row number) of max. profit
+LASSO_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+LASSO_opt_n
+
+opt_n_index = which.max(profit_validate_cforest$profit)  # Index (row number) of max. profit
+cforest_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+cforest_opt_n
+```
+
+OLS Optimal Targeting %
+```{r,}
+cat("OLS Optimal Targeting %: ", OLS_opt_n)
+```
+
+LASSO Optimal Targeting %
+```{r,}
+cat("LASSO Optimal Targeting %: ", LASSO_opt_n)
+```
+
+Causal Forest Optimal Targeting %
+```{r,}
+cat("Causal Forest Optimal Targeting %: ", cforest_opt_n, "\n")
+```
+
+At these optimal targeting levels, let's see what the respective profits are:
+
+```{r,}
+OLS_optimal_targeting_profit = profit_pred_DT[model=="OLS"&top_percent==OLS_opt_n, profit]
+
+LASSO_optimal_targeting_profit = profit_pred_DT[model=="LASSO"&top_percent==LASSO_opt_n, profit]
+
+cforest_optimal_targeting_profit = profit_pred_DT[model=="Causal Forest"&top_percent==cforest_opt_n, profit]
+```
+
+OLS Optimal Targeting Profit
+```{r,}
+cat("OLS Optimal Targeting Profit: ", OLS_optimal_targeting_profit)
+```
+
+LASSO Optimal Targeting Profit
+```{r,}
+cat("LASSO Optimal Targeting Profit: ", LASSO_optimal_targeting_profit)
+```
+
+Causal Forest Targeting Profit
+```{r,}
+cat("Causal Forest Optimal Targeting Profit: ", cforest_optimal_targeting_profit, "\n")
+```
+
+Evaluate the profits:
+
+```{r}
+# Profit comparisons
+compare_prof_OLS = profit_pred_DT[top_percent == OLS_opt_n&model=="OLS",                       profit]
+compare_prof_LASSO = profit_pred_DT[top_percent == LASSO_opt_n&model=="LASSO",                 profit]
+compare_prof_cforest = profit_pred_DT[top_percent == cforest_opt_n&model=="Causal Forest",     profit]
+compare_prof_target_all = profit_pred_DT[top_percent == 1&model=="OLS",                        profit]
+compare_prof_target_none = profit_pred_DT[top_percent == 0&model=="OLS",                       profit]
+```
+```{r,}
+cat("OLS Optimal Targeting Profit: ", compare_prof_OLS, "\n")
+```
+```{r,}
+cat("LASSO Optimal Targeting Profit: ", compare_prof_LASSO, "\n")
+```
+```{r,}
+cat("Causal Forest Optimal Targeting Profit: ", compare_prof_cforest, "\n")
+```
+```{r,}
+cat("Targeting All Profit: ", compare_prof_target_all, "\n")
+```
+```{r,}
+cat("Targeting No One Profit: ", compare_prof_target_none, "\n")
+```
+
+These profits using the respective optimal targeting policies demonstrate that Causal Forest yields the highest profit. The expected profit from targeting all people and the expected profit from targeting no one are both substantially lower than OLS, LASSO, and Causal Forest.
+
+\newpage
+
+
+# Step 3: How well do the models predict out-of-sample? --- Profits and external model validity
+
+Now we'll use the sample of customers from October 2018 to assess how well the model predicts out-of-sample. This is the key test to assess if the model really works. Can we really predict customer behavior one year after the estimation data were collected?
+
+```{r}
+load(paste0(data_folder, "/Randomized-Implementation-Sample-2018.RData"))
+```
+
+The approach:
+
+1. Use the model predictions based **only on the 2017 data**.
+
+Here I opted to use the existing 2017 models as is permitted in the assignment instructions.
+
+2. Predict the CATE for the customers in the October 2018 data.
+
+```{r,}
+set.seed(2001)
+crm_DT[, training_sample := rbinom(nrow(crm_DT), 1, 0.5)]
+```
+
+```{r,}
+setnames(crm_DT, "mailing_indicator", "W")
+```
+
+```{r,}
+cor_matrix = cor(crm_DT[, !c("customer_id", "W", "outcome_spend"),
+                        with = FALSE])
+```
+
+Create a data table that contains the correlations for all variable pairs:
+
+```{r}
+cor_matrix[upper.tri(cor_matrix, diag = TRUE)] = NA
+
+cor_DT = data.table(row = rep(rownames(cor_matrix), ncol(cor_matrix)),
+                    col = rep(colnames(cor_matrix), each = ncol(cor_matrix)),
+                    cor = as.vector(cor_matrix))
+cor_DT = cor_DT[is.na(cor) == FALSE]
+```
+
+We are going to use a threshold of 0.95 in absolute value as our criterion for high correlation. While statisticians differ in their views of what constitutes high correlation, this threshold is an appropriate heuristic selection.
+
+```{r}
+large_cor_DT = cor_DT[abs(cor) > 0.95]
+kable(large_cor_DT, digits = 4)
+```
+
+```{r}
+crm_DT = crm_DT[, !large_cor_DT$row, with = FALSE]
+```
+
+
+```{r}
+new_predict_DT = crm_DT[training_sample == 0,
+                    c("customer_id", "outcome_spend", "W"), with = FALSE]
+```
+
+
+```{r,}
+temp_2018_DT = crm_DT[training_sample == 0,
+                       !c("customer_id", "training_sample"), with = FALSE]
+
+
+new_predict_DT[, y_OLS_1 := predict(fit_OLS, newdata = temp_2018_DT[, W := 1])]
+new_predict_DT[, y_OLS_0 := predict(fit_OLS, newdata = temp_2018_DT[, W := 0])]
+
+
+
+
+X_new_1 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_2018_DT[, W := 1])
+X_new_0 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_2018_DT[, W := 0])
+
+# predict_DT[, y_LASSO   := predict(fit_LASSO, newx = X_new, s = "lambda.min")]
+new_predict_DT[, y_LASSO_1 := predict(fit_LASSO, newx = X_new_1, s = "lambda.min")]
+new_predict_DT[, y_LASSO_0 := predict(fit_LASSO, newx = X_new_0, s = "lambda.min")]
+```
+
+```{r,}
+setkey(predict_DT, "customer_id")
+new_predict_DT = merge(new_predict_DT, predict_DT_2018, by = "customer_id")
+```
+
+```{r,}
+# OLS CATE
+new_predict_DT[, tau_OLS := y_OLS_1 - y_OLS_0]
+
+# LASSO CATE
+new_predict_DT[, tau_LASSO := y_LASSO_1 - y_LASSO_0]
+```
+
+
+3. Evaluate the model predictions using the 2018 data.
+
+The structure of the 2018 data is identical to the structure of the 2017 data. In particular, the data contains a randomly selected sample of all customers in the data base, and the treatment assignment $W_i$ is randomized.
+
+```{r,}
+# Document the ATE
+mean_spend_0 = mean(new_predict_DT[W == 0, outcome_spend])
+mean_spend_1 = mean(new_predict_DT[W == 1, outcome_spend])
+ATE = mean_spend_1 - mean_spend_0
+
+cat(mean_spend_0, mean_spend_1, ATE)
+```
+
+```{r,}
+# Summarize and graph the distribution of the tau from the different estimation methods
+# visualize OLS, LASSO, and Causal Forest on the same visualization
+# visualize ATE as red dotted line
+require(reshape)
+melt_predict <- new_predict_DT[,.(customer_id, W, tau_cforest, tau_OLS, tau_LASSO)]
+melted_predict <- melt(melt_predict, id=c("customer_id","W"))
+
+ggplot(melted_predict, aes(x = value, fill = variable)) + geom_density(alpha = .3) + xlim(-10,10) + geom_vline(xintercept = ATE, linetype="dashed", color = "red")
+```
+
+```{r,}
+# evaluate the correlation between predictions from the models
+pred_cor_matrix = cor(melt_predict[, !c("customer_id", "W"),
+                        with = FALSE])
+pred_cor_matrix
+```
+
+```{r}
+# lift table
+lift_table <- function(model_name, y, score, W, N_groups = 20) {
+   DT = data.table(y     = y,
+                   score = score,
+                   W     = W)
+   DT[, score_group := as.integer(cut_number(score, n = N_groups))]
+   
+   lift_DT = DT[, .(model      = model_name,
+                    score      = mean(score),
+                    y          = (mean(y[W==1]) - mean(y[W==0])),
+                    N          = .N,
+                    std_error  = sd(y)/sqrt(.N)),   # Standard error of mean
+                keyby = score_group]
+   
+   lift_DT[, `:=`(lower  = y + qt(0.025, df = N-1)*std_error,
+                  upper  = y + qt(0.975, df = N-1)*std_error)]
+   lift_DT[, c("std_error", "N") := NULL]
+   lift_DT[, lift := 100*y/mean(y)]
+   
+   return(lift_DT)
+}
+```
+
+```{r}
+# CATE lift tables
+N_groups = 20
+
+lifts = list(
+   lift_table("OLS",           new_predict_DT$outcome_spend, new_predict_DT$tau_OLS, new_predict_DT$W, N_groups),
+   lift_table("LASSO",         new_predict_DT$outcome_spend, new_predict_DT$tau_LASSO, new_predict_DT$W, N_groups),
+   lift_table("Causal Forest", new_predict_DT$outcome_spend, new_predict_DT$tau_cforest, new_predict_DT$W, N_groups)
+)
+
+lifts = rbindlist(lifts)
+lifts[, model := factor(model, levels = c("OLS", "LASSO", "Causal Forest"))]
+```
+
+```{r}
+lifts_print = dcast(lifts, score_group ~ model, value.var = "y")
+kable(lifts_print, digits = 2)
+```
+
+```{r, fig.width = 6, fig.height = 5.5}
+ggplot(lifts, aes(x = score_group, y = y)) +
+   geom_line(color = "gray70") +
+   geom_errorbar(aes(ymin = lower, ymax = upper), color = "deepskyblue2",
+                 size = 0.6, width = 0.1) +
+   geom_point(shape = 21, color = "gray30", fill = "hotpink", size = 2.5) +
+   scale_x_continuous("Score", limits = c(1, N_groups),
+                      breaks = seq(0, N_groups, 5), minor_breaks = 1:N_groups) +
+   scale_y_continuous("Mean spending", limits = c(0, 25),
+                      breaks = seq(0, 25, 5)) +
+   facet_wrap(~ model, ncol = 2) +
+   theme_bw()
+```
+
+```{r,}
+profit_validate_OLS  = predictProfit(
+   "OLS", top_percent,
+   new_predict_DT[, tau_OLS],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_LASSO  = predictProfit(
+   "LASSO", top_percent,
+   new_predict_DT[, tau_LASSO],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_cforest  = predictProfit(
+   "Causal Forest", top_percent,
+   new_predict_DT[, tau_cforest],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_pred_DT = rbindlist(list(profit_validate_OLS, profit_validate_LASSO, profit_validate_cforest))
+```
+
+```{r, fig.width = 5, fig.height = 7}
+ggplot(profit_pred_DT, aes(x = top_percent, y = profit)) +
+   geom_hline(data = profit_pred_DT[top_percent == 0, .(model, profit_0 = profit)],
+              aes(yintercept = profit_0), color = "slategray3", size = 1) + 
+   geom_line(color = "mediumvioletred", size = 1) +
+   scale_x_continuous("Percent targeted", limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+   scale_y_continuous("Profit", limits = c(1500, 2500),
+                      breaks = seq(1500, 2500, 50)) +
+   theme_bw() +
+   facet_wrap(~ model, nrow = 2)
+```
+
+Optimal targeting percentage, $n^*$%:
+
+```{r}
+opt_n_index = which.max(profit_validate_OLS$profit)  # Index (row number) of max. profit
+OLS_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+OLS_opt_n
+
+opt_n_index = which.max(profit_validate_LASSO$profit)  # Index (row number) of max. profit
+LASSO_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+LASSO_opt_n
+
+opt_n_index = which.max(profit_validate_cforest$profit)  # Index (row number) of max. profit
+cforest_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+cforest_opt_n
+
+cat("OLS Optimal Targeting %: ", OLS_opt_n, "LASSO Optimal Targeting %: ", LASSO_opt_n, "Causal Forest Optimal Targeting %: ", cforest_opt_n, "\n")
+```
+
+At these optimal targeting levels, let's see what the respective profits are:
+
+```{r,}
+OLS_optimal_targeting_profit = profit_pred_DT[model=="OLS"&top_percent==OLS_opt_n, profit]
+
+LASSO_optimal_targeting_profit = profit_pred_DT[model=="LASSO"&top_percent==LASSO_opt_n, profit]
+
+cforest_optimal_targeting_profit = profit_pred_DT[model=="Causal Forest"&top_percent==cforest_opt_n, profit]
+```
+```{r,}
+cat("OLS Optimal Targeting Profit: ", OLS_optimal_targeting_profit)
+```
+
+```{r,} 
+cat("LASSO Optimal Targeting Profit: ", LASSO_optimal_targeting_profit)
+```
+
+```{r,}
+cat("Causal Forest Optimal Targeting Profit: ", cforest_optimal_targeting_profit, "\n")
+```
+
+Evaluate the profits:
+
+```{r}
+# Profit comparisons
+compare_prof_OLS_2018 = profit_pred_DT[top_percent == OLS_opt_n&model=="OLS",                       profit]
+compare_prof_LASSO_2018 = profit_pred_DT[top_percent == LASSO_opt_n&model=="LASSO",                 profit]
+compare_prof_cforest_2018 = profit_pred_DT[top_percent == cforest_opt_n&model=="Causal Forest",     profit]
+compare_prof_target_all_2018 = profit_pred_DT[top_percent == 1&model=="OLS",                        profit]
+compare_prof_target_none_2018 = profit_pred_DT[top_percent == 0&model=="OLS",                       profit]
+```
+
+Let's look at the optimal targeting profits.
+```{r,}
+cat("OLS Optimal Targeting Profit: ", compare_prof_OLS_2018, "\n") 
+```
+```{r,}
+cat("LASSO Optimal Targeting Profit: ", compare_prof_LASSO_2018, "\n") 
+```
+```{r,}
+cat("Causal Forest Optimal Targeting Profit: ", compare_prof_cforest_2018, "\n")
+```
+```{r,}
+cat("Targeting All Profit: ", compare_prof_target_all_2018, "\n")
+```
+```{r,}
+cat("Targeting No One Profit: ", compare_prof_target_none_2018, "\n")
+```
+
+We can compare these outputs against the 2017 profits from optimal targeting.
+2017 OLS Optimal Profit vs. 2018 OLS Optimal Profit
+```{r,}
+# 2017
+compare_prof_OLS
+```
+
+```{r,}
+# 2018
+compare_prof_OLS_2018
+```
+
+2017 LASSO Optimal Profit vs. 2018 LASSO Optimal Profit
+```{r,}
+# 2017
+compare_prof_LASSO
+```
+
+```{r,}
+# 2018
+compare_prof_LASSO_2018
+```
+
+2017 Causal Forest Optimal Profit vs. 2018 Causal Forest Optimal Profit
+```{r,}
+# 2017
+compare_prof_cforest
+```
+
+```{r,}
+# 2018
+compare_prof_cforest_2018
+```
+
+In comparing the 2017 results to the 2018 results, we see that the models generally perform worse on the out-of-sample 2018 data. Indeed, each model yields lower profit on the 2018 data than the 2017 data. However, this could be due to a material difference in customers and their respective behavior. For example, it could be the case that customers are systematically spending less. Regardless, the models still out-perform targeting all people or targeting no one. Therefore, these models, particularly Causal Forest, still result in substantial increases in profit.
+
+
+# Optional analysis (bonus)
+
+1. Can we improve over the LASSO using an elastic net? Is the elastic net competitive with a causal forest?
+
+We have to initialize everything all over again because of the Causal Forest merge warning mentioned earlier.
+
+```{r}
+load(paste0(data_folder, "/Randomized-Implementation-Sample-2018.RData"))
+```
+
+```{r,}
+set.seed(2001)
+crm_DT[, training_sample := rbinom(nrow(crm_DT), 1, 0.5)]
+```
+
+```{r,}
+setnames(crm_DT, "mailing_indicator", "W")
+```
+
+```{r,}
+cor_matrix = cor(crm_DT[, !c("customer_id", "W", "outcome_spend"),
+                        with = FALSE])
+```
+
+Create a data table that contains the correlations for all variable pairs:
+
+```{r}
+cor_matrix[upper.tri(cor_matrix, diag = TRUE)] = NA
+
+cor_DT = data.table(row = rep(rownames(cor_matrix), ncol(cor_matrix)),
+                    col = rep(colnames(cor_matrix), each = ncol(cor_matrix)),
+                    cor = as.vector(cor_matrix))
+cor_DT = cor_DT[is.na(cor) == FALSE]
+```
+```{r}
+large_cor_DT = cor_DT[abs(cor) > 0.95]
+kable(large_cor_DT, digits = 4)
+```
+
+```{r}
+crm_DT = crm_DT[, !large_cor_DT$row, with = FALSE]
+```
+
+
+```{r}
+new_predict_DT = crm_DT[training_sample == 0,
+                    c("customer_id", "outcome_spend", "W"), with = FALSE]
+```
+
+
+```{r,}
+temp_2018_DT = crm_DT[training_sample == 0,
+                       !c("customer_id", "training_sample"), with = FALSE]
+
+
+new_predict_DT[, y_OLS_1 := predict(fit_OLS, newdata = temp_2018_DT[, W := 1])]
+new_predict_DT[, y_OLS_0 := predict(fit_OLS, newdata = temp_2018_DT[, W := 0])]
+
+
+
+
+X_new_1 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_2018_DT[, W := 1])
+X_new_0 = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_2018_DT[, W := 0])
+
+# predict_DT[, y_LASSO   := predict(fit_LASSO, newx = X_new, s = "lambda.min")]
+new_predict_DT[, y_LASSO_1 := predict(fit_LASSO, newx = X_new_1, s = "lambda.min")]
+new_predict_DT[, y_LASSO_0 := predict(fit_LASSO, newx = X_new_0, s = "lambda.min")]
+```
+
+Estimate Elastic Net using the optimal `alpha` value.
+
+```{r}
+new_predict_DT[, y_elnet_1 := predict(fit_elnet, newx = X_new_1, s = "lambda.min")]
+new_predict_DT[, y_elnet_0 := predict(fit_elnet, newx = X_new_0, s = "lambda.min")]
+
+# OLS CATE
+new_predict_DT[, tau_elnet := y_elnet_1 - y_elnet_0]
+```
+
+Estimate the traditional spend for LASSO (for use in part 2).
+```{r,}
+X_new_trad = model.matrix(outcome_spend ~ 0 + .*W,
+                     data = temp_2018_DT)
+
+new_predict_DT[, y_LASSO_trad := predict(fit_LASSO, newx = X_new_trad, s = "lambda.min")]
+```
+
+Merge Causal Forest after the others given the warning earlier from the professor.
+```{r,}
+setkey(predict_DT, "customer_id")
+new_predict_DT = merge(new_predict_DT, predict_DT_2018, by = "customer_id")
+```
+
+```{r,}
+# OLS CATE
+new_predict_DT[, tau_OLS := y_OLS_1 - y_OLS_0]
+
+# LASSO CATE
+new_predict_DT[, tau_LASSO := y_LASSO_1 - y_LASSO_0]
+```
+
+
+```{r,}
+# Summarize and graph the distribution of the tau from the different estimation methods
+# visualize OLS, LASSO, and Causal Forest on the same visualization
+# visualize ATE as red dotted line
+require(reshape)
+melt_predict <- new_predict_DT[,.(customer_id, W, tau_cforest, tau_OLS, tau_LASSO, tau_elnet)]
+melted_predict <- melt(melt_predict, id=c("customer_id","W"))
+
+ggplot(melted_predict, aes(x = value, fill = variable)) + geom_density(alpha = .3) + xlim(-10,10) + geom_vline(xintercept = ATE, linetype="dashed", color = "red")
+```
+
+```{r,}
+# evaluate the correlation between predictions from the models
+pred_cor_matrix = cor(melt_predict[, !c("customer_id", "W"),
+                        with = FALSE])
+pred_cor_matrix
+```
+
+```{r}
+# CATE lift table
+N_groups = 20
+
+lifts = list(
+   lift_table("OLS",           new_predict_DT$outcome_spend, new_predict_DT$tau_OLS, new_predict_DT$W, N_groups),
+   lift_table("LASSO",         new_predict_DT$outcome_spend, new_predict_DT$tau_LASSO, new_predict_DT$W, N_groups),
+   lift_table("Causal Forest", new_predict_DT$outcome_spend, new_predict_DT$tau_cforest, new_predict_DT$W, N_groups),
+   lift_table("Elastic Net", new_predict_DT$outcome_spend, new_predict_DT$tau_elnet, new_predict_DT$W, N_groups)
+)
+
+lifts = rbindlist(lifts)
+lifts[, model := factor(model, levels = c("OLS", "LASSO", "Causal Forest", "Elastic Net"))]
+```
+
+```{r}
+lifts_print = dcast(lifts, score_group ~ model, value.var = "y")
+kable(lifts_print, digits = 2)
+```
+
+```{r, fig.width = 6, fig.height = 5.5}
+ggplot(lifts, aes(x = score_group, y = y)) +
+   geom_line(color = "gray70") +
+   geom_errorbar(aes(ymin = lower, ymax = upper), color = "deepskyblue2",
+                 size = 0.6, width = 0.1) +
+   geom_point(shape = 21, color = "gray30", fill = "hotpink", size = 2.5) +
+   scale_x_continuous("Score", limits = c(1, N_groups),
+                      breaks = seq(0, N_groups, 5), minor_breaks = 1:N_groups) +
+   scale_y_continuous("Mean spending", limits = c(0, 25),
+                      breaks = seq(0, 25, 5)) +
+   facet_wrap(~ model, ncol = 2) +
+   theme_bw()
+```
+
+```{r,}
+profit_validate_OLS  = predictProfit(
+   "OLS", top_percent,
+   new_predict_DT[, tau_OLS],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_LASSO  = predictProfit(
+   "LASSO", top_percent,
+   new_predict_DT[, tau_LASSO],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_cforest  = predictProfit(
+   "Causal Forest", top_percent,
+   new_predict_DT[, tau_cforest],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_elnet  = predictProfit(
+   "Elastic Net", top_percent,
+   new_predict_DT[, tau_elnet],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_pred_DT = rbindlist(list(profit_validate_OLS, profit_validate_LASSO, profit_validate_cforest, profit_validate_elnet))
+```
+
+```{r, fig.width = 5, fig.height = 7}
+ggplot(profit_pred_DT, aes(x = top_percent, y = profit)) +
+   geom_hline(data = profit_pred_DT[top_percent == 0, .(model, profit_0 = profit)],
+              aes(yintercept = profit_0), color = "slategray3", size = 1) + 
+   geom_line(color = "mediumvioletred", size = 1) +
+   scale_x_continuous("Percent targeted", limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+   scale_y_continuous("Profit", limits = c(1500, 2500),
+                      breaks = seq(1500, 2500, 50)) +
+   theme_bw() +
+   facet_wrap(~ model, nrow = 2)
+```
+
+Optimal targeting percentage, $n^*$%:
+
+```{r}
+opt_n_index = which.max(profit_validate_OLS$profit)  # Index (row number) of max. profit
+OLS_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+OLS_opt_n
+
+opt_n_index = which.max(profit_validate_LASSO$profit)  # Index (row number) of max. profit
+LASSO_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+LASSO_opt_n
+
+opt_n_index = which.max(profit_validate_cforest$profit)  # Index (row number) of max. profit
+cforest_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+cforest_opt_n
+
+opt_n_index = which.max(profit_validate_elnet$profit)  # Index (row number) of max. profit
+elnet_opt_n       = top_percent[opt_n_index]           # Optimal targeting percentage
+elnet_opt_n
+
+cat("OLS Optimal Targeting %: ", OLS_opt_n, "LASSO Optimal Targeting %: ", LASSO_opt_n, "Causal Forest Optimal Targeting %: ", cforest_opt_n, "Elastic Net Optimal Targeting %", elnet_opt_n, "\n")
+```
+
+At these optimal targeting levels, let's see what the respective profits are:
+
+```{r,}
+OLS_optimal_targeting_profit = profit_pred_DT[model=="OLS"&top_percent==OLS_opt_n, profit]
+
+LASSO_optimal_targeting_profit = profit_pred_DT[model=="LASSO"&top_percent==LASSO_opt_n, profit]
+
+cforest_optimal_targeting_profit = profit_pred_DT[model=="Causal Forest"&top_percent==cforest_opt_n, profit]
+
+elnet_optimal_targeting_profit = profit_pred_DT[model=="Elastic Net"&top_percent==elnet_opt_n, profit]
+
+```
+```{r,}
+cat("OLS Optimal Targeting Profit: ", OLS_optimal_targeting_profit)
+```
+
+```{r,} 
+cat("LASSO Optimal Targeting Profit: ", LASSO_optimal_targeting_profit)
+```
+
+```{r,}
+cat("Causal Forest Optimal Targeting Profit: ", cforest_optimal_targeting_profit, "\n")
+```
+
+```{r,}
+cat("Elastic Net Optimal Targeting Profit: ", elnet_optimal_targeting_profit, "\n")
+```
+
+Visualizing the CATE for the Elastic Net indicates that it is very similar to the LASSO and somewhat similar to the Causal Forest. Elastic Net performs approximately as well as LASSO. Therefore, we can conclude that Elastic Net is not meaningfully better than LASSO and does not perform as well as Causal Forest, so Causal Forest is still the preferred model.
+
+2. Suppose you do not have the ability or knowledge to predict customer-level incremental effects (this is still true for many firms that use marketing analytics). Instead, you score customers based on the expected level of spending---the traditional CRM approach that you used in the previous assignment. How does targeting using the traditional CRM approach compare to targeting using policies that are constructed from estimates of the conditional average treatment effects (*incremental* spending)?
+
+Traditional predictions were created earlier in this document for this explicit purpose using LASSO.
+
+Predict targeting profits:
+
+```{r}
+new_predict_DT[, E_profit := margin*y_LASSO_trad - cost]
+```
+
+What is the percentage of customers who should be targeted?
+
+```{r}
+mean(new_predict_DT$E_profit > 0)
+```
+
+```{r,}
+# Summarize and graph the distribution of the tau from the different estimation methods
+# visualize OLS, LASSO, and Causal Forest on the same visualization
+# visualize ATE as red dotted line
+melt_predict_trad <- new_predict_DT[,.(customer_id, W, tau_cforest, tau_OLS, tau_LASSO, tau_elnet, E_profit)]
+melted_predict_trad <- melt(melt_predict_trad, id=c("customer_id","W"))
+
+ggplot(melted_predict_trad, aes(x = value, fill = variable)) + geom_density(alpha = .3) + xlim(-10,10) + geom_vline(xintercept = ATE, linetype="dashed", color = "red")
+```
+
+```{r,}
+# evaluate the correlation between predictions from the models
+pred_cor_matrix_trad = cor(melt_predict_trad[, !c("customer_id", "W"),
+                        with = FALSE])
+pred_cor_matrix_trad
+```
+
+```{r}
+# CATE lift table
+N_groups = 20
+
+lifts_trad = list(
+   lift_table("OLS",           new_predict_DT$outcome_spend, new_predict_DT$tau_OLS, new_predict_DT$W, N_groups),
+   lift_table("LASSO",         new_predict_DT$outcome_spend, new_predict_DT$tau_LASSO, new_predict_DT$W, N_groups),
+   lift_table("Causal Forest", new_predict_DT$outcome_spend, new_predict_DT$tau_cforest, new_predict_DT$W, N_groups),
+   lift_table("Elastic Net", new_predict_DT$outcome_spend, new_predict_DT$tau_elnet, new_predict_DT$W, N_groups),
+      lift_table("E_profit", new_predict_DT$outcome_spend, new_predict_DT$E_profit, new_predict_DT$W, N_groups)
+)
+
+lifts_trad = rbindlist(lifts_trad)
+lifts_trad[, model := factor(model, levels = c("OLS", "LASSO", "Causal Forest", "Elastic Net", "E_profit"))]
+```
+
+```{r}
+lifts_print_trad = dcast(lifts_trad, score_group ~ model, value.var = "y")
+kable(lifts_print_trad, digits = 2)
+```
+
+```{r, fig.width = 6, fig.height = 5.5}
+ggplot(lifts_trad, aes(x = score_group, y = y)) +
+   geom_line(color = "gray70") +
+   geom_errorbar(aes(ymin = lower, ymax = upper), color = "deepskyblue2",
+                 size = 0.6, width = 0.1) +
+   geom_point(shape = 21, color = "gray30", fill = "hotpink", size = 2.5) +
+   scale_x_continuous("Score", limits = c(1, N_groups),
+                      breaks = seq(0, N_groups, 5), minor_breaks = 1:N_groups) +
+   scale_y_continuous("Mean spending", limits = c(0, 25),
+                      breaks = seq(0, 25, 5)) +
+   facet_wrap(~ model, ncol = 2) +
+   theme_bw()
+```
+
+```{r,}
+profit_validate_OLS  = predictProfit(
+   "OLS", top_percent,
+   new_predict_DT[, tau_OLS],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_LASSO  = predictProfit(
+   "LASSO", top_percent,
+   new_predict_DT[, tau_LASSO],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_cforest  = predictProfit(
+   "Causal Forest", top_percent,
+   new_predict_DT[, tau_cforest],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_elnet  = predictProfit(
+   "Elastic Net", top_percent,
+   new_predict_DT[, tau_elnet],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_validate_E_profit  = predictProfit(
+   "E_profit", top_percent,
+   new_predict_DT[, E_profit],
+   new_predict_DT[, W],
+   new_predict_DT[, outcome_spend],
+   p, margin, cost)
+
+profit_pred_DT = rbindlist(list(profit_validate_OLS, profit_validate_LASSO, profit_validate_cforest, profit_validate_elnet, profit_validate_E_profit))
+```
+
+```{r, fig.width = 5, fig.height = 7}
+ggplot(profit_pred_DT, aes(x = top_percent, y = profit)) +
+   geom_hline(data = profit_pred_DT[top_percent == 0, .(model, profit_0 = profit)],
+              aes(yintercept = profit_0), color = "slategray3", size = 1) + 
+   geom_line(color = "mediumvioletred", size = 1) +
+   scale_x_continuous("Percent targeted", limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+   scale_y_continuous("Profit", limits = c(1500, 2500),
+                      breaks = seq(1500, 2500, 50)) +
+   theme_bw() +
+   facet_wrap(~ model, nrow = 2)
+```
+
+This output is pretty interesting, because it demonstrates that using the traditional targeting method yields optimal profit at a very different % of customers targeted compared to the other models. In particular, the optimal profit for the traditional method comes when you have targeted about half of the customers, which is fascinating given that this approach is only slightly better than flipping a coin. Further, the traditional method appears to yield a profit greater than the OLS. While LASSO, Elastic Net, and Causal Forest still perform better than the traditional method, one could understand why firms that lack the technical ability to implement a personalized targeting model use the traditional method as a default, since in isolation it seems (emphasis on "seems") to be relatively profitable.
