@@ -1,0 +1,42 @@
+**First, it could be insightful to use something like elastic net regression for variable selection.**
+```{r elastic net,warning=FALSE}
+library(glmnet)
+library(caret)
+library(ISLR)
+
+set.seed(123)
+
+# set up alpha and lambda grid to search for a pair that minimizes cross validation error
+lambda.grid <- 10^seq(2, -2, length = 100)
+alpha.grid <- seq(0, 1, length = 10)
+
+# set up cross validation method for train function
+trnCtrl = trainControl(
+  method = "repeatedCV",
+  number = 10,
+  repeats = 5)
+
+# set up search grid for alpha and lambda parameters
+srchGrd = expand.grid(.alpha = alpha.grid, .lambda = lambda.grid)
+
+# perform cross validation forecasting outcome based on all features
+train <- train(outcome~., data = promotions_train,
+             method = "glmnet",
+             tuneGrid = srchGrd,
+             trControl = trnCtrl,
+             standardize = TRUE, maxit=1000)
+
+# plot cross validation performance
+plot(train)
+
+# return best tuning parameters
+train$bestTune
+
+# retrieve best model (model with best alpha)
+glmnet.model <- train$finalModel
+
+# retrieve coefficients of the final model using optimal lambda
+coef(glmnet.model, s = train$bestTune$lambda)
+```
+
+**The elastic net model suggests that x5value4, x6value3, x8value2, x8value3, x8value4, x10value2, x11value3, x15value2, x15value3, and x16value3 are meaningful predictors of outcome.**
