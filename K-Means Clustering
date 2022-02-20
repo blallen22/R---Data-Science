@@ -1,0 +1,62 @@
+**Let's prepare our data.**
+```{r prep data,}
+set.seed(123)
+
+# pick just the "price and selling proposition" variables
+keeps <- c("i..Member.id", "Avg..Price", "Pr.Cat.1", "Pr.Cat.2", "Pr.Cat.3", "Pr.Cat.4", 
+           "PropCat.5", "PropCat.6", "PropCat.7", "PropCat.8", "PropCat.9", "PropCat.10", 
+           "PropCat.11", "PropCat.12", "PropCat.13", "PropCat.14", "PropCat.15")
+
+soap.price <- soap[,names(soap) %in% keeps]
+
+scaled.soap.price <- scale(soap.price[,-1])
+```
+
+
+```{r k-means1,}
+kvec = 2:10
+sse = c() # within-group sum of squared errors
+ratio = c() # between-group SS / total SS
+for(k in kvec)
+{
+  model = kmeans(scaled.soap.price, centers = k, nstart=10)
+  sse = c(sse, model$tot.withinss)
+  ratio = c(ratio, model$betweenss/model$totss)
+}
+
+par(mfrow=c(1,2))
+plot(kvec,sse,"b")
+plot(kvec,ratio,"b")
+```
+
+**Let's use Bayesian Information Criterion (BIC) to choose the number of clusters.**
+```{r BIC,message=FALSE, warning=FALSE}
+# install.packages("mclust")
+library(mclust)
+# Run the function to see how many clusters
+# it finds to be optimal, set it to search for
+# at least 2 model and up to 5, given the business parameters.
+d_clust <- Mclust(as.matrix(scaled.soap.price), G=2:5)
+m.best <- dim(d_clust$z)[2]
+cat("model-based optimal number of clusters:", m.best, "\n")
+```
+
+**The optimal number of clusters is 4.**
+
+**Note that we had to stay within the confines of 2 to 5 clusters per the instructions' business parameters, which says that "it is likely that the marketing efforts would support two to five different promotional approaches."**
+
+**Here are the cluster results:**
+```{r}
+set.seed(123)
+model = kmeans(scaled.soap.price, centers = m.best, nstart=10)
+
+library(cluster)
+clusplot(scaled.soap.price, model$cluster, color = TRUE, lines = 0, labels = 4, plotchar = TRUE)
+
+# from scaled centers to original centers
+centers = model$centers*attr(scaled.soap.price, 'scaled:scale') + 
+  attr(scaled.soap.price, 'scaled:center')
+
+centers
+
+```
